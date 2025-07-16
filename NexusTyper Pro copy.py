@@ -276,7 +276,7 @@ class TypingWorker(QObject):
     def _type_segment(self, segment, overall_start_time, chars_completed, total_pause_duration, total_chars_overall):
         # Types a segment of text with human-like behavior, preserving code formatting
         for char in segment:
-            if not self._running:
+            if not self._running: 
                 return chars_completed, total_pause_duration, False
             self.pause_event.wait()
             if not self._running:
@@ -538,7 +538,9 @@ class AutoTyperApp(QWidget):
         if self.is_paused: self.resume_typing(); return
         if self.worker: return
         text = self.text_edit.toPlainText()
-        if not text.strip(): QMessageBox.warning(self, "Input Error", "Text is empty."); return
+        if not text.strip(): 
+            self.status_label.setText("Status: Error - Input text cannot be empty.") # <<< THIS IS THE NEW LINE
+            return
         self.set_ui_for_running(True)
         self.progress_bar.setMaximum(len(text.replace('\n', '')) * self.laps_spin.value())
         newline_mode = 'Standard'
@@ -732,5 +734,3 @@ if __name__ == "__main__":
     window = AutoTyperApp()
     window.show()
     sys.exit(app.exec_())
-
-
