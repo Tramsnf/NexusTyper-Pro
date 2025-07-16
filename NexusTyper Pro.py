@@ -538,7 +538,9 @@ class AutoTyperApp(QWidget):
         if self.is_paused: self.resume_typing(); return
         if self.worker: return
         text = self.text_edit.toPlainText()
-        if not text.strip(): QMessageBox.warning(self, "Input Error", "Text is empty."); return
+        if not text.strip(): 
+            self.status_label.setText("Status: Error - Input text cannot be empty.") # <<< THIS IS THE NEW LINE
+            return
         self.set_ui_for_running(True)
         self.progress_bar.setMaximum(len(text.replace('\n', '')) * self.laps_spin.value())
         newline_mode = 'Standard'
