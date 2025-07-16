@@ -40,7 +40,18 @@ DEFAULT_MIN_WPM, DEFAULT_MAX_WPM = 180, 220
 MIN_WPM_LIMIT, MAX_WPM_LIMIT = 10, 800
 DEFAULT_LAPS, DEFAULT_DELAY = 1, 3
 MISTAKE_CHANCE = 0.02
-DEFAULT_START_HOTKEY, DEFAULT_STOP_HOTKEY, DEFAULT_RESUME_HOTKEY = "Ctrl+Alt+S", "Ctrl+Alt+X", "Ctrl+Alt+R"
+
+# Platform-specific hotkeys for a native feel
+if platform.system() == "Darwin":
+    # Use Command (Cmd) key for macOS, which is standard practice
+    DEFAULT_START_HOTKEY = "Cmd+Alt+S"
+    DEFAULT_STOP_HOTKEY = "Cmd+Alt+X"
+    DEFAULT_RESUME_HOTKEY = "Cmd+Alt+R"
+else:
+    # Use Control (Ctrl) key for Windows and Linux
+    DEFAULT_START_HOTKEY = "Ctrl+Alt+S"
+    DEFAULT_STOP_HOTKEY = "Ctrl+Alt+X"
+    DEFAULT_RESUME_HOTKEY = "Ctrl+Alt+R"
 
 # Keyboard adjacency map for simulating realistic typing mistakes
 KEY_ADJACENCY = {
@@ -734,5 +745,3 @@ if __name__ == "__main__":
     window = AutoTyperApp()
     window.show()
     sys.exit(app.exec_())
-
-
