@@ -192,20 +192,16 @@ class TypingWorker(QObject):
         self.enable_mouse_jitter = kwargs.get('mouse_jitter')
         self.initial_window = None # To store the target window title
 
-        # --- FIX: Initialize these settings for ALL personas from the UI ---
-        # These are now set regardless of the selected persona.
+        # --- Get ALL settings directly from the UI ---
         self.newline_mode = kwargs.get('newline_mode')
-        self.use_enter_for_newlines = kwargs.get('use_enter_for_newlines')
-        # --- END FIX ---
-        
-        self.apply_persona_settings() # This will set persona-specific typing styles
-
-        # If the persona is Custom, THEN override with the specific manual settings.
-        if self.persona == 'Custom (Manual Settings)':
-            self.min_wpm = kwargs.get('min_wpm')
-            self.max_wpm = kwargs.get('max_wpm')
-            self.add_mistakes = kwargs.get('add_mistakes')
-            self.pause_on_punct = kwargs.get('pause_on_punct')
+        self.use_shift_enter = kwargs.get('use_shift_enter', False)
+        self.type_tabs = kwargs.get('type_tabs', True)
+        self.min_wpm = kwargs.get('min_wpm')
+        self.max_wpm = kwargs.get('max_wpm')
+        self.add_mistakes = kwargs.get('add_mistakes')
+        self.pause_on_punct = kwargs.get('pause_on_punct')
+        self.mistake_chance = MISTAKE_CHANCE 
+        self.thinking_pause_chance = 0.04
 
     def apply_persona_settings(self):
         # Set typing parameters based on selected persona
@@ -287,6 +283,8 @@ class TypingWorker(QObject):
     def _type_segment(self, segment, overall_start_time, chars_completed, total_pause_duration, total_chars_overall):
         # Types a segment of text with human-like behavior, preserving code formatting
         for char in segment:
+            if char == '\t' and not self.type_tabs:
+                continue # Skip this character and go to the next one
             if not self._running: 
                 return chars_completed, total_pause_duration, False
             self.pause_event.wait()
@@ -301,11 +299,12 @@ class TypingWorker(QObject):
                     pyautogui.press('backspace')
                     time.sleep(random.uniform(0.05, 0.15))
             if char == '\n':
-                if self.use_enter_for_newlines:
-                    pyautogui.press('enter')
-                else:
-                    # Use shift+enter to insert newline without triggering send
+                if self.use_shift_enter:
+                    # If the box is checked, use Shift+Enter
                     pyautogui.hotkey('shift', 'enter')
+                else:
+                    # Otherwise, use the new default: Enter
+                    pyautogui.press('enter')
             else:
                 # Type character as is, preserving indentation and spacing
                 pyautogui.typewrite(char, interval=0.002) # Add small interval for reliability
@@ -378,7 +377,8 @@ class TypingWorker(QObject):
                     for line in lines:
                         if not self._running:
                             break
-                        chars_completed, total_pause_duration, still_running = self._type_segment(line, overall_start_time, chars_completed, total_pause_duration, total_chars_overall)
+                        # --- THIS IS THE MODIFIED LINE ---
+                        chars_completed, total_pause_duration, still_running = self._type_segment(line.lstrip(), overall_start_time, chars_completed, total_pause_duration, total_chars_overall)
                         if not still_running:
                             break
                         if self._running:
@@ -529,8 +529,11 @@ class AutoTyperApp(QWidget):
         newline_layout.addWidget(self.standard_radio)
         newline_layout.addWidget(self.smart_radio)
         newline_layout.addWidget(self.list_mode_radio)
-        self.use_enter_key_checkbox = QCheckBox("Use Enter for newlines (default is Shift+Enter)")
-        newline_layout.addWidget(self.use_enter_key_checkbox)
+        self.use_shift_enter_checkbox = QCheckBox("Use Shift+Enter for Newlines (for chat apps)")
+        newline_layout.addWidget(self.use_shift_enter_checkbox)
+        self.type_tabs_checkbox = QCheckBox("Type Tab Characters")
+        self.type_tabs_checkbox.setChecked(True) # Checked by default
+        newline_layout.addWidget(self.type_tabs_checkbox)
         self.newline_group_box.setLayout(newline_layout)
         self.mouse_jitter_checkbox = QCheckBox("Enable Background Mouse Jitter")
         advanced_layout.addLayout(persona_layout); advanced_layout.addWidget(self.manual_settings_group); advanced_layout.addWidget(self.newline_group_box)
@@ -543,8 +546,41 @@ class AutoTyperApp(QWidget):
         self.min_wpm_slider.valueChanged.connect(self.update_speed_labels); self.max_wpm_slider.valueChanged.connect(self.update_speed_labels)
         self.persona_combo.currentIndexChanged.connect(self.toggle_persona_controls)
     def toggle_persona_controls(self):
-        is_custom = (self.persona_combo.currentText() == "Custom (Manual Settings)")
-        self.manual_settings_group.setEnabled(is_custom)
+        # This method now applies a full preset of settings based on the chosen persona.
+        persona = self.persona_combo.currentText()
+        
+        # All personas will have manual controls enabled for tweaking.
+        self.manual_settings_group.setEnabled(True)
+
+        if persona == 'Careful Coder':
+            # --- Optimal settings for typing code ---
+            self.min_wpm_slider.setValue(90)
+            self.max_wpm_slider.setValue(140)
+            self.add_mistakes_checkbox.setChecked(False) # <--- THIS LINE IS CHANGED
+            self.pause_on_punct_checkbox.setChecked(True)
+            # Automatically select List Mode, which is best for code editors
+            self.list_mode_radio.setChecked(True)
+
+        elif persona == 'Deliberate Writer':
+            # --- Settings for careful, thoughtful prose ---
+            self.min_wpm_slider.setValue(70)
+            self.max_wpm_slider.setValue(110)
+            self.add_mistakes_checkbox.setChecked(True)
+            self.pause_on_punct_checkbox.setChecked(True)
+            # Smart Newlines is best for paragraphs of prose
+            self.smart_radio.setChecked(True)
+
+        elif persona == 'Fast Messenger':
+            # --- Settings for rapid, chat-style typing ---
+            self.min_wpm_slider.setValue(150)
+            self.max_wpm_slider.setValue(250)
+            self.add_mistakes_checkbox.setChecked(True)
+            self.pause_on_punct_checkbox.setChecked(False)
+            self.smart_radio.setChecked(True)
+
+        elif persona == 'Custom (Manual Settings)':
+            # For Custom, we don't change any settings, just ensure controls are on.
+            pass
     def start_typing(self):
         if self.is_paused: self.resume_typing(); return
         if self.worker: return
@@ -558,7 +594,7 @@ class AutoTyperApp(QWidget):
         if self.smart_radio.isChecked(): newline_mode = 'Smart Newlines'
         elif self.list_mode_radio.isChecked(): newline_mode = 'List Mode'
         elif self.paste_mode_radio.isChecked(): newline_mode = 'Paste Mode'
-        worker_opts = {'min_wpm': self.min_wpm_slider.value(), 'max_wpm': self.max_wpm_slider.value(),'typing_persona': self.persona_combo.currentText(), 'add_mistakes': self.add_mistakes_checkbox.isChecked(), 'pause_on_punct': self.pause_on_punct_checkbox.isChecked(), 'newline_mode': newline_mode, 'use_enter_for_newlines': self.use_enter_key_checkbox.isChecked(), 'mouse_jitter': self.mouse_jitter_checkbox.isChecked()}
+        worker_opts = {'min_wpm': self.min_wpm_slider.value(), 'max_wpm': self.max_wpm_slider.value(),'type_tabs': self.type_tabs_checkbox.isChecked(), 'typing_persona': self.persona_combo.currentText(), 'add_mistakes': self.add_mistakes_checkbox.isChecked(), 'pause_on_punct': self.pause_on_punct_checkbox.isChecked(), 'newline_mode': newline_mode, 'use_shift_enter': self.use_shift_enter_checkbox.isChecked(), 'mouse_jitter': self.mouse_jitter_checkbox.isChecked()}
         self.thread = QThread(); self.worker = TypingWorker(text, self.laps_spin.value(), self.delay_spin.value(), **worker_opts)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run); self.worker.finished.connect(self.on_typing_finished)
