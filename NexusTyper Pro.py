@@ -123,6 +123,61 @@ class AboutDialog(QDialog):
         right_layout.addLayout(button_layout)
         main_layout.addLayout(right_layout)
 
+# --- Help Dialog - Explains app functions ---
+class HelpDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Function Guide - NexusTyper Pro")
+        self.setGeometry(100, 100, 650, 550) # Set a good size
+        
+        layout = QVBoxLayout(self)
+        
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setHtml("""
+            <h1>NexusTyper Pro Function Guide</h1>
+            
+            <h2>Typing Personas</h2>
+            <p>Personas are quick presets that configure settings for a specific task. You can always adjust the settings manually after selecting a persona.</p>
+            <ul>
+                <li><b>Careful Coder:</b> Optimized for writing code into an IDE. It enables <b>List Mode</b>, disables mistakes, and uses other smart features to ensure code is typed accurately.</li>
+                <li><b>Deliberate Writer:</b> Simulates a person writing prose thoughtfully. It uses a slower speed and enables <b>Smart Newlines</b> to correctly format paragraphs.</li>
+                <li><b>Fast Messenger:</b> Simulates rapid, chat-style typing with a high WPM and fewer pauses.</li>
+                <li><b>Custom (Manual Settings):</b> Does not change any settings, giving you full manual control.</li>
+            </ul>
+            
+            <h2>Humanization</h2>
+            <ul>
+                <li><b>WPM Sliders:</b> Control the minimum and maximum words per minute.</li>
+                <li><b>Add Mistakes:</b> Simulates human-like typing errors and corrects them.</li>
+                <li><b>Pause on Punctuation:</b> Adds a slight, natural delay after typing punctuation like commas and periods.</li>
+            </ul>
+
+            <h2>Advanced Handling</h2>
+            <h4>Newline Modes (How 'Enter' is handled)</h4>
+            <ul>
+                <li><b>Line Paste:</b> The fastest mode. Copies and pastes each line. May be blocked by some applications.</li>
+                <li><b>Standard Typing:</b> Types every character exactly as-is, including all spaces and tabs. <b>Use this for simple text editors that do not auto-indent</b> (like Notepad).</li>
+                <li><b>Smart Newlines:</b> Best for prose. Joins single line breaks into a space to form paragraphs but preserves double line breaks.</li>
+                <li><b>List Mode:</b> The best mode for modern code editors (IDEs). It types the code on each line but lets the editor handle indentation, preventing formatting conflicts.</li>
+            </ul>
+            <h4>Other Options</h4>
+            <ul>
+                <li><b>Use Shift+Enter:</b> Check this if you need to create a newline without "sending" a message, common in chat apps like Slack or Teams. The default is a normal 'Enter' press.</li>
+                <li><b>Preserve Tab Characters:</b> If checked, it will type any tabs from your source text. If unchecked, it will ignore them, which can help with indentation in some editors.</li>
+                <li><b>Press 'Esc' to bypass autocomplete:</b> A smart feature that presses the 'Esc' key before typing a line to close any annoying autocomplete pop-ups in code editors.</li>
+                <li><b>Enable Background Mouse Jitter:</b> Gently moves the mouse cursor by a tiny amount to simulate user activity and prevent systems from going idle.</li>
+            </ul>
+        """)
+        layout.addWidget(text_edit)
+
+        # Add an OK button to close the dialog
+        ok_button = QPushButton("OK")
+        button_box = QDialogButtonBox(Qt.Horizontal)
+        button_box.addButton(ok_button, QDialogButtonBox.AcceptRole)
+        ok_button.clicked.connect(self.accept)
+        layout.addWidget(button_box)
+
 # Settings dialog for hotkeys
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -200,6 +255,7 @@ class TypingWorker(QObject):
         self.add_mistakes = kwargs.get('add_mistakes')
         self.pause_on_punct = kwargs.get('pause_on_punct')
         self.enable_mouse_jitter = kwargs.get('mouse_jitter')
+        self.press_esc = kwargs.get('press_esc', False)
         self.mistake_chance = MISTAKE_CHANCE 
         self.thinking_pause_chance = 0.04
 
@@ -362,14 +418,22 @@ class TypingWorker(QObject):
                     lines = text_content.splitlines()
                     for line in lines:
                         if not self._running: break
+                        
+                        # Type the line first
                         chars_completed, total_pause_duration, still_running = self._type_segment(line.lstrip(), overall_start_time, chars_completed, total_pause_duration, total_chars_overall)
                         if not still_running: break
+
                         if self._running:
+                            # NOW, press 'Esc' right before 'Enter'
+                            if self.press_esc:
+                                pyautogui.press('esc')
+                                time.sleep(0.05)
+                            
                             if self.use_shift_enter:
                                 pyautogui.hotkey('shift', 'enter')
                             else:
                                 pyautogui.press('enter')
-                            time.sleep(0.1)
+                            time.sleep(0.1) # Restored a small delay for stability
                 else:
                     processed_text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text_content) if self.newline_mode == 'Smart Newlines' else text_content
                     segments = re.split(r'(\{\{(?:PAUSE|PRESS|CLICK|COMMENT):.*?\}\})', processed_text)
@@ -407,10 +471,32 @@ class AutoTyperApp(QWidget):
         self.is_paused = False
         self.init_ui()
         self.load_settings()
-        self.start_hotkey_listener()
+        self.start_listener()
         self.start_typing_signal.connect(self.start_typing)
         self.stop_typing_signal.connect(self.stop_typing)
         self.resume_typing_signal.connect(self.resume_typing)
+    
+    def _translate_hotkey_for_pynput(self, hotkey):
+        """Translates a PyQt-style hotkey string to a pynput-compatible one."""
+        # pynput expects format like <cmd>+<alt>+s, all lowercase
+        hotkey = hotkey.lower()
+        parts = hotkey.split('+')
+        
+        # Translate special key names
+        pynput_parts = []
+        for part in parts:
+            if part == 'cmd':
+                pynput_parts.append('<cmd>')
+            elif part == 'ctrl':
+                pynput_parts.append('<ctrl>')
+            elif part == 'alt':
+                pynput_parts.append('<alt>')
+            elif part == 'shift':
+                pynput_parts.append('<shift>')
+            else:
+                pynput_parts.append(part)
+                
+        return '+'.join(pynput_parts)
 
     def showEvent(self, event):
         """Apply macOS specific window flags when the window is shown."""
@@ -446,6 +532,12 @@ class AutoTyperApp(QWidget):
         format_menu = self.menu_bar.addMenu('F&ormat')
         profiles_menu = self.menu_bar.addMenu('&Profiles')
         view_menu = self.menu_bar.addMenu('&View')
+        help_menu = self.menu_bar.addMenu('&Help')
+
+        # Create and add the help action
+        show_help_action = QAction('&View Help Guide', self)
+        show_help_action.triggered.connect(self.show_help_dialog)
+        help_menu.addAction(show_help_action)
         
         open_action = QAction('&Open...', self)
         open_action.triggered.connect(self.open_file)
@@ -570,6 +662,9 @@ class AutoTyperApp(QWidget):
         self.type_tabs_checkbox = QCheckBox("Preserve Tab Characters")
         self.type_tabs_checkbox.setChecked(True)
         newline_layout.addWidget(self.type_tabs_checkbox)
+        self.press_esc_checkbox = QCheckBox("Press 'Esc' to bypass autocomplete")
+        self.press_esc_checkbox.setChecked(True) # Default to on
+        newline_layout.addWidget(self.press_esc_checkbox)
         self.mouse_jitter_checkbox = QCheckBox("Enable Background Mouse Jitter")
         newline_layout.addWidget(self.mouse_jitter_checkbox)
         self.newline_group_box.setLayout(newline_layout)
@@ -638,6 +733,7 @@ class AutoTyperApp(QWidget):
             self.add_mistakes_checkbox.setChecked(False)
             self.pause_on_punct_checkbox.setChecked(True)
             self.list_mode_radio.setChecked(True)
+            self.press_esc_checkbox.setChecked(True)
 
         elif persona == 'Deliberate Writer':
             self.min_wpm_slider.setValue(70)
@@ -645,6 +741,7 @@ class AutoTyperApp(QWidget):
             self.add_mistakes_checkbox.setChecked(True)
             self.pause_on_punct_checkbox.setChecked(True)
             self.smart_radio.setChecked(True)
+            self.press_esc_checkbox.setChecked(True)
 
         elif persona == 'Fast Messenger':
             self.min_wpm_slider.setValue(150)
@@ -652,6 +749,7 @@ class AutoTyperApp(QWidget):
             self.add_mistakes_checkbox.setChecked(True)
             self.pause_on_punct_checkbox.setChecked(False)
             self.smart_radio.setChecked(True)
+            self.press_esc_checkbox.setChecked(True)
             
     def start_typing(self):
         if self.is_paused:
@@ -685,7 +783,8 @@ class AutoTyperApp(QWidget):
             'pause_on_punct': self.pause_on_punct_checkbox.isChecked(), 
             'newline_mode': newline_mode, 
             'use_shift_enter': self.use_shift_enter_checkbox.isChecked(), 
-            'mouse_jitter': self.mouse_jitter_checkbox.isChecked()
+            'mouse_jitter': self.mouse_jitter_checkbox.isChecked(),
+            'press_esc': self.press_esc_checkbox.isChecked()
         }
 
         self.thread = QThread()
@@ -701,6 +800,19 @@ class AutoTyperApp(QWidget):
         self.worker.lap_progress.connect(lambda cl, tl: self.lap_label.setText(f"Lap: {cl}/{tl}"))
         self.worker.update_etr.connect(self.etr_label.setText)
         self.thread.start()
+        
+    def toggle_always_on_top(self, checked):
+        # For macOS, we handle flags natively. For others, use the Qt hint.
+        if platform.system() == "Darwin":
+            self.apply_macos_float_behavior(checked)
+        else:
+            if checked:
+                self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+            else:
+                self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)
+
+        self.settings.setValue("alwaysOnTop", checked)
+        self.show() # Re-show to apply flag changes
 
     def update_speed_labels(self):
         min_wpm, max_wpm = self.min_wpm_slider.value(), self.max_wpm_slider.value()
@@ -748,14 +860,47 @@ class AutoTyperApp(QWidget):
         self.thread, self.worker = None, None
 
     def show_about_dialog(self):
+        self.stop_listener()
+        is_on_top = self.always_on_top_action.isChecked()
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(False)
+        
         dialog = AboutDialog(self)
         dialog.exec_()
+        
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(True)
+        self.start_listener()
 
     def show_settings_dialog(self):
+        self.stop_listener()
+        is_on_top = self.always_on_top_action.isChecked()
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(False)
+            
         dialog = SettingsDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
+        result = dialog.exec_()
+
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(True)
+        self.start_listener()
+
+        if result == QDialog.Accepted:
             self.update_button_hotkey_text()
             QMessageBox.information(self, "Settings Saved", "Hotkey settings have been updated. Please restart the application for them to take effect.")
+            
+    def show_help_dialog(self):
+        self.stop_listener()
+        is_on_top = self.always_on_top_action.isChecked()
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(False)
+            
+        dialog = HelpDialog(self)
+        dialog.exec_()
+        
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(True)
+        self.start_listener()
 
     def update_button_hotkey_text(self):
         start = self.settings.value("startHotkey", DEFAULT_START_HOTKEY)
@@ -763,18 +908,36 @@ class AutoTyperApp(QWidget):
         self.start_button.setText(f"START ({start})")
         self.stop_button.setText(f"STOP ({stop})")
 
-    def start_hotkey_listener(self):
-        self.hotkey_listener_thread = threading.Thread(target=self._run_hotkey_listener, daemon=True)
+    def start_listener(self):
+        """Starts the global hotkey listener in a separate thread."""
+        if hasattr(self, 'hotkey_listener_thread') and self.hotkey_listener_thread and self.hotkey_listener_thread.is_alive():
+            return # Listener is already running
+
+        self.hotkey_listener_thread = threading.Thread(target=self._run_listener, daemon=True)
         self.hotkey_listener_thread.start()
 
-    def _run_hotkey_listener(self):
+    def stop_listener(self):
+        """Stops the global hotkey listener."""
+        if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
+            self.hotkey_listener.stop()
+        if hasattr(self, 'hotkey_listener_thread') and self.hotkey_listener_thread:
+            self.hotkey_listener_thread.join() # Wait for the thread to fully exit
+        
+    def _run_listener(self):
+        """The target function for the listener thread."""
         try:
-            with keyboard.GlobalHotKeys({
-                self.settings.value("startHotkey", DEFAULT_START_HOTKEY): self.start_typing_signal.emit,
-                self.settings.value("stopHotkey", DEFAULT_STOP_HOTKEY): self.stop_typing_signal.emit,
-                self.settings.value("resumeHotkey", DEFAULT_RESUME_HOTKEY): self.resume_typing_signal.emit
-            }) as h:
-                h.join()
+            # Translate hotkeys before passing them to the listener
+            start_key = self._translate_hotkey_for_pynput(self.settings.value("startHotkey", DEFAULT_START_HOTKEY))
+            stop_key = self._translate_hotkey_for_pynput(self.settings.value("stopHotkey", DEFAULT_STOP_HOTKEY))
+            resume_key = self._translate_hotkey_for_pynput(self.settings.value("resumeHotkey", DEFAULT_RESUME_HOTKEY))
+
+            hotkeys = {
+                start_key: self.start_typing_signal.emit,
+                stop_key: self.stop_typing_signal.emit,
+                resume_key: self.resume_typing_signal.emit
+            }
+            self.hotkey_listener = keyboard.GlobalHotKeys(hotkeys)
+            self.hotkey_listener.run()
         except Exception as e:
             print(f"Hotkey listener error: {e}")
 
@@ -820,7 +983,17 @@ class AutoTyperApp(QWidget):
         self.settings.endGroup()
 
     def save_profile(self):
+        self.stop_listener()
+        is_on_top = self.always_on_top_action.isChecked()
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(False)
+
         name, ok = QInputDialog.getText(self, "Save Profile", "Enter profile name:")
+        
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(True)
+        self.start_listener()
+
         if ok and name:
             path = f"Profiles/{name}"
             self.settings.beginGroup(path)
@@ -864,7 +1037,17 @@ class AutoTyperApp(QWidget):
         self.text_edit.setText(result)
 
     def open_file(self):
+        self.stop_listener()
+        is_on_top = self.always_on_top_action.isChecked()
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(False)
+
         path, _ = QFileDialog.getOpenFileName(self, "Open", "", "Text Files (*.txt)")
+        
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(True)
+        self.start_listener()
+
         if path:
             try:
                 with open(path, 'r', encoding='utf-8') as f:
@@ -873,7 +1056,17 @@ class AutoTyperApp(QWidget):
                 QMessageBox.warning(self, "Error", f"Could not open file: {e}")
 
     def save_file(self): 
+        self.stop_listener()
+        is_on_top = self.always_on_top_action.isChecked()
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(False)
+            
         path, _ = QFileDialog.getSaveFileName(self, "Save As", "", "Text Files (*.txt)")
+        
+        if platform.system() == "Darwin" and is_on_top:
+            self.apply_macos_float_behavior(True)
+        self.start_listener()
+
         if path:
             try:
                 with open(path, 'w', encoding='utf-8') as f:

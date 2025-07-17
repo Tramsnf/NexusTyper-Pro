@@ -1,1 +1,18 @@
-pOcoFOd1P i2ahSMt6Eo3yswyrYvfVIdjNsu4xmzwz2Pk1rsHPBI5iZe16I0hHH7kogyFh6WjRnjSjJfwnm9TWI6erTtu6BE9mFS
+import sys
+import time
+import re
+import random
+import numpy as np
+import platform
+import threading
+import os
+
+from PyQt5.QtWidgets import (
+    QApplication, QWidget, QTextEdit, QPushButton, QVBoxLayout, QHBoxLayout,
+    QLabel, QSpinBox, QCheckBox, QSlider, QMessageBox, QProgressBar,
+    QFileDialog, QAction, QMenuBar, QDialog, QLineEdit,
+    QDialogButtonBox, QComboBox, QInputDialog, QTabWidget, QKeySequenceEdit,
+    QFormLayout, QGroupBox, QRadioButton
+)
+from PyQt5.QtCore import Qt, pyqtSignal, QObject, QThread, QSettings, QEvent
+from PyQt5.QtGui import QKeySequence, QPixmap, QIcon
