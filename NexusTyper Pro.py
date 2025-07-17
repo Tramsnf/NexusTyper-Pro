@@ -189,7 +189,6 @@ class TypingWorker(QObject):
         self.laps = laps
         self.delay = delay
         self.persona = kwargs.get('typing_persona')
-        self.enable_mouse_jitter = kwargs.get('mouse_jitter')
         self.initial_window = None # To store the target window title
 
         # --- Get ALL settings directly from the UI ---
@@ -200,25 +199,9 @@ class TypingWorker(QObject):
         self.max_wpm = kwargs.get('max_wpm')
         self.add_mistakes = kwargs.get('add_mistakes')
         self.pause_on_punct = kwargs.get('pause_on_punct')
+        self.enable_mouse_jitter = kwargs.get('mouse_jitter')
         self.mistake_chance = MISTAKE_CHANCE 
         self.thinking_pause_chance = 0.04
-
-    def apply_persona_settings(self):
-        # Set typing parameters based on selected persona
-        if self.persona == 'Deliberate Writer':
-            self.min_wpm, self.max_wpm = 70, 110
-            self.mistake_chance, self.add_mistakes = 0.015, True
-            self.thinking_pause_chance, self.pause_on_punct = 0.1, True
-        elif self.persona == 'Fast Messenger':
-            self.min_wpm, self.max_wpm = 150, 250
-            self.mistake_chance, self.add_mistakes = 0.03, True
-            self.thinking_pause_chance, self.pause_on_punct = 0.02, False
-        elif self.persona == 'Careful Coder':
-            self.min_wpm, self.max_wpm = 90, 140
-            self.mistake_chance, self.add_mistakes = 0.01, True
-            self.thinking_pause_chance, self.pause_on_punct = 0.05, True
-        else: # Default values for 'Custom (Manual Settings)' before they are overridden
-            self.mistake_chance, self.thinking_pause_chance = MISTAKE_CHANCE, 0.04
 
     def stop(self):
         self._running = False
@@ -285,44 +268,49 @@ class TypingWorker(QObject):
         for char in segment:
             if char == '\t' and not self.type_tabs:
                 continue # Skip this character and go to the next one
+            
             if not self._running: 
                 return chars_completed, total_pause_duration, False
             self.pause_event.wait()
             if not self._running:
                 return chars_completed, total_pause_duration, False
+            
             if self.get_active_window_title() != self.initial_window and not self._paused:
                 self.pause(auto_resume_check=True)
+            
             if self.add_mistakes and random.random() < self.mistake_chance:
                 if char.lower() in KEY_ADJACENCY:
                     pyautogui.typewrite(random.choice(KEY_ADJACENCY[char.lower()]))
                     time.sleep(random.uniform(0.1, 0.25))
                     pyautogui.press('backspace')
                     time.sleep(random.uniform(0.05, 0.15))
+            
             if char == '\n':
                 if self.use_shift_enter:
-                    # If the box is checked, use Shift+Enter
                     pyautogui.hotkey('shift', 'enter')
                 else:
-                    # Otherwise, use the new default: Enter
                     pyautogui.press('enter')
             else:
-                # Type character as is, preserving indentation and spacing
-                pyautogui.typewrite(char, interval=0.002) # Add small interval for reliability
+                pyautogui.typewrite(char, interval=0.002)
+            
             chars_completed += 1
             elapsed = (time.time() - overall_start_time) - total_pause_duration
             cpm = (chars_completed / elapsed) * 60 if elapsed > 0 else 0
             self.update_speed.emit(cpm / 5)
             self.update_progress.emit(chars_completed)
+            
             if cpm > 0:
-                self.update_etr.emit(f"ETR: {time.strftime('%M:%S', time.gmtime(((total_chars_overall - chars_completed) / cpm) * 60))}")
-            if self.persona != 'Maximum':
-                delay = random.uniform(60 / (self.max_wpm * 5), 60 / (self.min_wpm * 5))
-                if self.pause_on_punct:
-                    if char in '.,?!':
-                        delay += random.uniform(0.08, 0.15)
-                    elif char in '()[]{}':
-                        delay += random.uniform(0.1, 0.3)
-                time.sleep(max(0.01, delay))
+                etr_seconds = ((total_chars_overall - chars_completed) / cpm) * 60
+                self.update_etr.emit(f"ETR: {time.strftime('%M:%S', time.gmtime(etr_seconds))}")
+            
+            delay = random.uniform(60 / (self.max_wpm * 5), 60 / (self.min_wpm * 5))
+            if self.pause_on_punct:
+                if char in '.,?!':
+                    delay += random.uniform(0.08, 0.15)
+                elif char in '()[]{}':
+                    delay += random.uniform(0.1, 0.3)
+            time.sleep(max(0.01, delay))
+            
         return chars_completed, total_pause_duration, True
 
     def run(self):
@@ -342,6 +330,7 @@ class TypingWorker(QObject):
             if total_chars_overall == 0:
                 self.finished.emit()
                 return
+
             chars_completed, total_pause_duration = 0, 0
             for i in range(self.delay, 0, -1):
                 if not self._running:
@@ -349,60 +338,53 @@ class TypingWorker(QObject):
                     return
                 self.update_status.emit(f"Starting in {i}...")
                 time.sleep(1)
+            
             self.initial_window = self.get_active_window_title()
             self.update_status.emit(f"Typing locked on: {self.initial_window}")
             overall_start_time = time.time()
+            
             for lap in range(1, self.laps + 1):
-                if not self._running:
-                    break
+                if not self._running: break
                 self.lap_progress.emit(lap, self.laps)
 
                 if self.newline_mode == 'Paste Mode':
                     lines = text_content.splitlines(keepends=True)
                     for line in lines:
                         if not self._running: break
-                        
                         pyperclip.copy(line)
                         pyautogui.hotkey('command' if platform.system() == "Darwin" else 'ctrl', 'v')
-                        
                         chars_completed += len(line)
                         self.update_progress.emit(chars_completed)
-                        
-                        # Add a small, human-like pause between lines
                         time.sleep(random.uniform(0.05, 0.15))
                     continue
 
                 if self.newline_mode == 'List Mode':
                     lines = text_content.splitlines()
                     for line in lines:
-                        if not self._running:
-                            break
-                        # --- THIS IS THE MODIFIED LINE ---
+                        if not self._running: break
                         chars_completed, total_pause_duration, still_running = self._type_segment(line.lstrip(), overall_start_time, chars_completed, total_pause_duration, total_chars_overall)
-                        if not still_running:
-                            break
+                        if not still_running: break
                         if self._running:
-                            if self.use_enter_for_newlines:
-                                pyautogui.press('enter')
-                            else:
+                            if self.use_shift_enter:
                                 pyautogui.hotkey('shift', 'enter')
+                            else:
+                                pyautogui.press('enter')
                             time.sleep(0.1)
                 else:
                     processed_text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text_content) if self.newline_mode == 'Smart Newlines' else text_content
                     segments = re.split(r'(\{\{(?:PAUSE|PRESS|CLICK|COMMENT):.*?\}\})', processed_text)
                     for segment in segments:
-                        if not self._running:
-                            break
+                        if not self._running: break
                         match = re.match(r'\{\{([A-Z]+):(.*)\}\}', segment)
                         if match:
                             self.execute_macro(*match.groups())
                             continue
                         chars_completed, total_pause_duration, still_running = self._type_segment(segment, overall_start_time, chars_completed, total_pause_duration, total_chars_overall)
-                        if not still_running:
-                            break
-                if not self._running:
-                    break
+                        if not still_running: break
+                
+                if not self._running: break
                 time.sleep(0.5)
+            
             if self._running:
                 self.update_status.emit("Typing completed successfully!")
             else:
@@ -417,6 +399,7 @@ class AutoTyperApp(QWidget):
     start_typing_signal = pyqtSignal()
     stop_typing_signal = pyqtSignal()
     resume_typing_signal = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         self.settings = QSettings(APP_AUTHOR, APP_NAME)
@@ -432,26 +415,21 @@ class AutoTyperApp(QWidget):
     def showEvent(self, event):
         """Apply macOS specific window flags when the window is shown."""
         super().showEvent(event)
-        # On show, apply the float behavior if on macOS.
-        # This ensures it's applied on startup and after any flag changes.
         if platform.system() == "Darwin":
             self.apply_macos_float_behavior(self.always_on_top_action.isChecked())
 
     def apply_macos_float_behavior(self, checked):
         """Helper to set native window behavior on macOS for floating over all apps and spaces."""
         try:
-            # This requires PyObjC. It finds the NSWindow by its title.
             ns_app = AppKit.NSApplication.sharedApplication()
             for win in ns_app.windows():
                 if win.title() == self.windowTitle():
                     if checked:
-                        # Set to appear on all spaces and over fullscreen apps
                         behavior = (AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces |
                                     AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary)
                         win.setCollectionBehavior_(behavior)
                         win.setLevel_(AppKit.NSStatusWindowLevel)
                     else:
-                        # Reset to default behavior
                         win.setCollectionBehavior_(AppKit.NSWindowCollectionBehaviorDefault)
                         win.setLevel_(AppKit.NSNormalWindowLevel)
                     break
@@ -460,231 +438,315 @@ class AutoTyperApp(QWidget):
 
     def init_ui(self):
         self.setWindowTitle(f"{APP_NAME} - v{APP_VERSION}")
-        # --- CHANGE: Set the main window icon ---
         if os.path.exists("icon.icns"):
             self.setWindowIcon(QIcon("icon.icns"))
 
         self.menu_bar = QMenuBar(self)
-        file_menu = self.menu_bar.addMenu('&File'); format_menu = self.menu_bar.addMenu('F&ormat'); profiles_menu = self.menu_bar.addMenu('&Profiles'); view_menu = self.menu_bar.addMenu('&View')
-        open_action = QAction('&Open...', self); open_action.triggered.connect(self.open_file); file_menu.addAction(open_action)
-        save_action = QAction('&Save As...', self); save_action.triggered.connect(self.save_file); file_menu.addAction(save_action)
+        file_menu = self.menu_bar.addMenu('&File')
+        format_menu = self.menu_bar.addMenu('F&ormat')
+        profiles_menu = self.menu_bar.addMenu('&Profiles')
+        view_menu = self.menu_bar.addMenu('&View')
+        
+        open_action = QAction('&Open...', self)
+        open_action.triggered.connect(self.open_file)
+        file_menu.addAction(open_action)
+        save_action = QAction('&Save As...', self)
+        save_action.triggered.connect(self.save_file)
+        file_menu.addAction(save_action)
         file_menu.addSeparator()
-        settings_action = QAction('&Settings...', self); settings_action.triggered.connect(self.show_settings_dialog); file_menu.addAction(settings_action)
-        about_action = QAction('&About...', self); about_action.triggered.connect(self.show_about_dialog); file_menu.addAction(about_action)
+        settings_action = QAction('&Settings...', self)
+        settings_action.triggered.connect(self.show_settings_dialog)
+        file_menu.addAction(settings_action)
+        about_action = QAction('&About...', self)
+        about_action.triggered.connect(self.show_about_dialog)
+        file_menu.addAction(about_action)
         file_menu.addSeparator()
-        exit_action = QAction('&Exit', self); exit_action.triggered.connect(self.close); file_menu.addAction(exit_action)
-        clean_action = QAction('Clean Whitespace', self); clean_action.triggered.connect(self.clean_whitespace); format_menu.addAction(clean_action)
+        exit_action = QAction('&Exit', self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        clean_action = QAction('Clean Whitespace', self)
+        clean_action.triggered.connect(self.clean_whitespace)
+        format_menu.addAction(clean_action)
         format_menu.addSeparator()
-        upper_action = QAction('UPPERCASE', self); upper_action.triggered.connect(self.to_uppercase); format_menu.addAction(upper_action)
-        lower_action = QAction('lowercase', self); lower_action.triggered.connect(self.to_lowercase); format_menu.addAction(lower_action)
-        sentence_action = QAction('Sentence case', self); sentence_action.triggered.connect(self.to_sentence_case); format_menu.addAction(sentence_action)
-        save_profile_action = QAction('Save Profile...', self); save_profile_action.triggered.connect(self.save_profile); profiles_menu.addAction(save_profile_action)
-        self.load_profile_menu = profiles_menu.addMenu('Load Profile'); self.populate_profiles_menu()
+        upper_action = QAction('UPPERCASE', self)
+        upper_action.triggered.connect(self.to_uppercase)
+        format_menu.addAction(upper_action)
+        lower_action = QAction('lowercase', self)
+        lower_action.triggered.connect(self.to_lowercase)
+        format_menu.addAction(lower_action)
+        sentence_action = QAction('Sentence case', self)
+        sentence_action.triggered.connect(self.to_sentence_case)
+        format_menu.addAction(sentence_action)
+
+        save_profile_action = QAction('Save Profile...', self)
+        save_profile_action.triggered.connect(self.save_profile)
+        profiles_menu.addAction(save_profile_action)
+        self.load_profile_menu = profiles_menu.addMenu('Load Profile')
+        self.populate_profiles_menu()
+
         self.dark_mode_action = QAction('Dark Mode', self, checkable=True)
         self.dark_mode_action.triggered.connect(self.toggle_dark_mode)
-        view_menu.addAction(self.dark_mode_action)  # Fix: add QAction, not QMenu
+        view_menu.addAction(self.dark_mode_action)
         view_menu.addSeparator()
         self.always_on_top_action = QAction('Always on Top', self, checkable=True)
         self.always_on_top_action.triggered.connect(self.toggle_always_on_top)
         view_menu.addAction(self.always_on_top_action)
-        layout = QVBoxLayout(self); layout.setMenuBar(self.menu_bar)
-        self.tabs = QTabWidget(); self.standard_mode_tab, self.advanced_mode_tab = QWidget(), QWidget()
-        self.tabs.addTab(self.standard_mode_tab, "Standard Mode"); self.tabs.addTab(self.advanced_mode_tab, "Advanced Mode")
-        layout.addWidget(self.tabs)
-        self.text_edit = PasteCleaningTextEdit()
-        self.text_edit.setPlaceholderText("Paste text here - it will be automatically cleaned.\nMacros like {{PAUSE:1.5}} are supported.")
-        self.text_edit.installEventFilter(self)  # Ensure event filter is installed
-        self.start_button = QPushButton(); self.stop_button = QPushButton(); self.clean_button = QPushButton("Clean"); self.clear_button = QPushButton("Clear")
-        self.progress_bar = QProgressBar(); self.progress_bar.setRange(0, 100); self.progress_bar.setValue(0)
-        self.status_label = QLabel("Status: Idle"); self.lap_label = QLabel("Lap: 0 / 0"); self.etr_label = QLabel("ETR: --:--")
-        standard_layout = QVBoxLayout(self.standard_mode_tab)
-        self.laps_spin = QSpinBox(); self.laps_spin.setRange(1, 1000); self.laps_spin.setValue(DEFAULT_LAPS)
-        self.delay_spin = QSpinBox(); self.delay_spin.setRange(0, 60); self.delay_spin.setValue(DEFAULT_DELAY)
-        opts_layout = QHBoxLayout(); opts_layout.addWidget(QLabel("Laps:")); opts_layout.addWidget(self.laps_spin); opts_layout.addWidget(QLabel("Start Delay (sec):")); opts_layout.addWidget(self.delay_spin); opts_layout.addStretch()
-        standard_layout.addWidget(QLabel("<h2>Core Controls</h2>")); standard_layout.addLayout(opts_layout); standard_layout.addStretch()
-        advanced_layout = QVBoxLayout(self.advanced_mode_tab)
-        self.persona_combo = QComboBox(); self.persona_combo.addItems(["Custom (Manual Settings)", "Deliberate Writer", "Fast Messenger", "Careful Coder"])
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setMenuBar(self.menu_bar)
+
+        # --- Unified Settings Layout ---
+        self.settings_group_box = QGroupBox("Typing Configuration")
+        settings_layout = QVBoxLayout()
+
+        core_controls_layout = QHBoxLayout()
+        self.laps_spin = QSpinBox()
+        self.laps_spin.setRange(1, 1000)
+        self.laps_spin.setValue(DEFAULT_LAPS)
+        self.delay_spin = QSpinBox()
+        self.delay_spin.setRange(0, 60)
+        self.delay_spin.setValue(DEFAULT_DELAY)
+        core_controls_layout.addWidget(QLabel("Laps:"))
+        core_controls_layout.addWidget(self.laps_spin)
+        core_controls_layout.addSpacing(20)
+        core_controls_layout.addWidget(QLabel("Start Delay (sec):"))
+        core_controls_layout.addWidget(self.delay_spin)
+        core_controls_layout.addStretch()
+        settings_layout.addLayout(core_controls_layout)
+        settings_layout.addSpacing(10)
+
+        self.persona_combo = QComboBox()
+        self.persona_combo.addItems(["Custom (Manual Settings)", "Deliberate Writer", "Fast Messenger", "Careful Coder"])
         self.persona_combo.currentIndexChanged.connect(self.toggle_persona_controls)
-        persona_layout = QHBoxLayout(); persona_layout.addWidget(QLabel("Typing Persona:")); persona_layout.addWidget(self.persona_combo)
-        self.manual_settings_group = QGroupBox("Manual Controls");
+        persona_layout = QHBoxLayout()
+        persona_layout.addWidget(QLabel("Typing Persona:"))
+        persona_layout.addWidget(self.persona_combo, 1)
+        settings_layout.addLayout(persona_layout)
+
+        self.manual_settings_group = QGroupBox("Humanization")
         manual_layout = QVBoxLayout()
-        self.min_wpm_slider = QSlider(Qt.Horizontal); self.min_wpm_slider.setRange(MIN_WPM_LIMIT, MAX_WPM_LIMIT); self.min_wpm_slider.setValue(DEFAULT_MIN_WPM)
-        self.max_wpm_slider = QSlider(Qt.Horizontal); self.max_wpm_slider.setRange(MIN_WPM_LIMIT, MAX_WPM_LIMIT); self.max_wpm_slider.setValue(DEFAULT_MAX_WPM)
-        self.min_wpm_label = QLabel(f"Min: {DEFAULT_MIN_WPM} WPM"); self.max_wpm_label = QLabel(f"Max: {DEFAULT_MAX_WPM} WPM")
-        self.wpm_display = QLabel("Current: --- WPM")
-        speed1 = QHBoxLayout(); speed1.addWidget(self.min_wpm_label, 1); speed1.addWidget(self.min_wpm_slider, 4)
-        speed2 = QHBoxLayout(); speed2.addWidget(self.max_wpm_label, 1); speed2.addWidget(self.max_wpm_slider, 4)
-        self.add_mistakes_checkbox = QCheckBox("Add Mistakes"); self.pause_on_punct_checkbox = QCheckBox("Pause on Punctuation"); self.pause_on_punct_checkbox.setChecked(True)
-        human_layout = QHBoxLayout(); human_layout.addWidget(self.add_mistakes_checkbox); human_layout.addWidget(self.pause_on_punct_checkbox); human_layout.addStretch()
-        manual_layout.addLayout(speed1); manual_layout.addLayout(speed2); manual_layout.addLayout(human_layout)
+        self.min_wpm_slider = QSlider(Qt.Horizontal)
+        self.min_wpm_slider.setRange(MIN_WPM_LIMIT, MAX_WPM_LIMIT)
+        self.min_wpm_slider.setValue(DEFAULT_MIN_WPM)
+        self.max_wpm_slider = QSlider(Qt.Horizontal)
+        self.max_wpm_slider.setRange(MIN_WPM_LIMIT, MAX_WPM_LIMIT)
+        self.max_wpm_slider.setValue(DEFAULT_MAX_WPM)
+        self.min_wpm_label = QLabel(f"Min: {DEFAULT_MIN_WPM} WPM")
+        self.max_wpm_label = QLabel(f"Max: {DEFAULT_MAX_WPM} WPM")
+        speed1 = QHBoxLayout()
+        speed1.addWidget(self.min_wpm_label, 1)
+        speed1.addWidget(self.min_wpm_slider, 4)
+        speed2 = QHBoxLayout()
+        speed2.addWidget(self.max_wpm_label, 1)
+        speed2.addWidget(self.max_wpm_slider, 4)
+        self.add_mistakes_checkbox = QCheckBox("Add Mistakes")
+        self.pause_on_punct_checkbox = QCheckBox("Pause on Punctuation")
+        self.pause_on_punct_checkbox.setChecked(True)
+        human_layout = QHBoxLayout()
+        human_layout.addWidget(self.add_mistakes_checkbox)
+        human_layout.addWidget(self.pause_on_punct_checkbox)
+        human_layout.addStretch()
+        manual_layout.addLayout(speed1)
+        manual_layout.addLayout(speed2)
+        manual_layout.addLayout(human_layout)
         self.manual_settings_group.setLayout(manual_layout)
-        self.newline_group_box = QGroupBox("Newline Handling")
+        settings_layout.addWidget(self.manual_settings_group)
+        
+        self.newline_group_box = QGroupBox("Advanced Handling")
         newline_layout = QVBoxLayout()
-        self.paste_mode_radio = QRadioButton("Line Paste (Recommended for code)")
-        self.standard_radio = QRadioButton("Standard Typing (For prose or editors with auto-indent OFF)")
-        self.smart_radio = QRadioButton("Smart Newlines (Best for prose, joins paragraphs)")
-        self.list_mode_radio = QRadioButton("List Mode (Action after each line)")
-        self.paste_mode_radio.setChecked(True)
+        self.paste_mode_radio = QRadioButton("Line Paste (Fastest; for code)")
+        self.standard_radio = QRadioButton("Standard Typing (Types text as-is)")
+        self.smart_radio = QRadioButton("Smart Newlines (Best for prose)")
+        self.list_mode_radio = QRadioButton("List Mode (Ideal for code editors)")
+        self.list_mode_radio.setChecked(True)
         newline_layout.addWidget(self.paste_mode_radio)
         newline_layout.addWidget(self.standard_radio)
         newline_layout.addWidget(self.smart_radio)
         newline_layout.addWidget(self.list_mode_radio)
+        newline_layout.addSpacing(5)
         self.use_shift_enter_checkbox = QCheckBox("Use Shift+Enter for Newlines (for chat apps)")
         newline_layout.addWidget(self.use_shift_enter_checkbox)
-        self.type_tabs_checkbox = QCheckBox("Type Tab Characters")
-        self.type_tabs_checkbox.setChecked(True) # Checked by default
+        self.type_tabs_checkbox = QCheckBox("Preserve Tab Characters")
+        self.type_tabs_checkbox.setChecked(True)
         newline_layout.addWidget(self.type_tabs_checkbox)
-        self.newline_group_box.setLayout(newline_layout)
         self.mouse_jitter_checkbox = QCheckBox("Enable Background Mouse Jitter")
-        advanced_layout.addLayout(persona_layout); advanced_layout.addWidget(self.manual_settings_group); advanced_layout.addWidget(self.newline_group_box)
-        h_adv_checks = QHBoxLayout(); h_adv_checks.addWidget(self.mouse_jitter_checkbox); h_adv_checks.addStretch()
-        advanced_layout.addLayout(h_adv_checks); advanced_layout.addStretch()
-        h_controls = QHBoxLayout(); h_controls.addWidget(self.start_button, 2); h_controls.addWidget(self.stop_button, 2); h_controls.addWidget(self.clean_button, 1); h_controls.addWidget(self.clear_button, 1)
-        h_status = QHBoxLayout(); h_status.addWidget(self.wpm_display, 1); h_status.addWidget(self.status_label, 2); h_status.addWidget(self.lap_label); h_status.addStretch(); h_status.addWidget(self.etr_label)
-        layout.addWidget(self.text_edit, 1); layout.addLayout(h_controls); layout.addWidget(self.progress_bar); layout.addLayout(h_status)
-        self.start_button.clicked.connect(self.start_typing); self.stop_button.clicked.connect(self.stop_typing); self.clean_button.clicked.connect(self.clean_whitespace); self.clear_button.clicked.connect(self.text_edit.clear)
-        self.min_wpm_slider.valueChanged.connect(self.update_speed_labels); self.max_wpm_slider.valueChanged.connect(self.update_speed_labels)
-        self.persona_combo.currentIndexChanged.connect(self.toggle_persona_controls)
-    def toggle_persona_controls(self):
-        # This method now applies a full preset of settings based on the chosen persona.
-        persona = self.persona_combo.currentText()
+        newline_layout.addWidget(self.mouse_jitter_checkbox)
+        self.newline_group_box.setLayout(newline_layout)
+        settings_layout.addWidget(self.newline_group_box)
         
-        # All personas will have manual controls enabled for tweaking.
+        self.settings_group_box.setLayout(settings_layout)
+        main_layout.addWidget(self.settings_group_box)
+
+        self.text_edit = PasteCleaningTextEdit()
+        self.text_edit.setPlaceholderText("Paste text here - it will be automatically cleaned.\nMacros like {{PAUSE:1.5}} are supported.")
+        self.text_edit.installEventFilter(self)
+        main_layout.addWidget(self.text_edit, 1)
+
+        h_controls = QHBoxLayout()
+        self.start_button = QPushButton()
+        self.stop_button = QPushButton()
+        self.clean_button = QPushButton("Clean")
+        self.clear_button = QPushButton("Clear")
+        h_controls.addWidget(self.start_button, 2)
+        h_controls.addWidget(self.stop_button, 2)
+        h_controls.addWidget(self.clean_button, 1)
+        h_controls.addWidget(self.clear_button, 1)
+        main_layout.addLayout(h_controls)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        main_layout.addWidget(self.progress_bar)
+
+        h_status = QHBoxLayout()
+        self.wpm_display = QLabel("Current: --- WPM")
+        self.status_label = QLabel("Status: Idle")
+        self.lap_label = QLabel("Lap: 0 / 0")
+        self.etr_label = QLabel("ETR: --:--")
+        h_status.addWidget(self.wpm_display, 1)
+        h_status.addWidget(self.status_label, 2)
+        h_status.addWidget(self.lap_label)
+        h_status.addStretch()
+        h_status.addWidget(self.etr_label)
+        main_layout.addLayout(h_status)
+
+        self.start_button.clicked.connect(self.start_typing)
+        self.stop_button.clicked.connect(self.stop_typing)
+        self.clean_button.clicked.connect(self.clean_whitespace)
+        self.clear_button.clicked.connect(self.text_edit.clear)
+        self.min_wpm_slider.valueChanged.connect(self.update_speed_labels)
+        self.max_wpm_slider.valueChanged.connect(self.update_speed_labels)
+
+    def set_ui_for_running(self, is_running):
+        self.start_button.setEnabled(not is_running)
+        self.stop_button.setEnabled(is_running)
+        self.text_edit.setEnabled(not is_running)
+        self.menu_bar.setEnabled(not is_running)
+        self.clear_button.setEnabled(not is_running)
+        self.settings_group_box.setEnabled(not is_running)
+        if not is_running:
+            self.toggle_persona_controls()
+
+    def toggle_persona_controls(self):
+        persona = self.persona_combo.currentText()
         self.manual_settings_group.setEnabled(True)
 
         if persona == 'Careful Coder':
-            # --- Optimal settings for typing code ---
             self.min_wpm_slider.setValue(90)
             self.max_wpm_slider.setValue(140)
-            self.add_mistakes_checkbox.setChecked(False) # <--- THIS LINE IS CHANGED
+            self.add_mistakes_checkbox.setChecked(False)
             self.pause_on_punct_checkbox.setChecked(True)
-            # Automatically select List Mode, which is best for code editors
             self.list_mode_radio.setChecked(True)
 
         elif persona == 'Deliberate Writer':
-            # --- Settings for careful, thoughtful prose ---
             self.min_wpm_slider.setValue(70)
             self.max_wpm_slider.setValue(110)
             self.add_mistakes_checkbox.setChecked(True)
             self.pause_on_punct_checkbox.setChecked(True)
-            # Smart Newlines is best for paragraphs of prose
             self.smart_radio.setChecked(True)
 
         elif persona == 'Fast Messenger':
-            # --- Settings for rapid, chat-style typing ---
             self.min_wpm_slider.setValue(150)
             self.max_wpm_slider.setValue(250)
             self.add_mistakes_checkbox.setChecked(True)
             self.pause_on_punct_checkbox.setChecked(False)
             self.smart_radio.setChecked(True)
-
-        elif persona == 'Custom (Manual Settings)':
-            # For Custom, we don't change any settings, just ensure controls are on.
-            pass
+            
     def start_typing(self):
-        if self.is_paused: self.resume_typing(); return
-        if self.worker: return
+        if self.is_paused:
+            self.resume_typing()
+            return
+        if self.worker:
+            return
+
         text = self.text_edit.toPlainText()
         if not text.strip(): 
-            self.status_label.setText("Status: Error - Input text cannot be empty.") # <<< THIS IS THE NEW LINE
+            self.status_label.setText("Status: Error - Input text cannot be empty.")
             return
+
         self.set_ui_for_running(True)
         self.progress_bar.setMaximum(len(text.replace('\n', '')) * self.laps_spin.value())
+        
         newline_mode = 'Standard'
-        if self.smart_radio.isChecked(): newline_mode = 'Smart Newlines'
-        elif self.list_mode_radio.isChecked(): newline_mode = 'List Mode'
-        elif self.paste_mode_radio.isChecked(): newline_mode = 'Paste Mode'
-        worker_opts = {'min_wpm': self.min_wpm_slider.value(), 'max_wpm': self.max_wpm_slider.value(),'type_tabs': self.type_tabs_checkbox.isChecked(), 'typing_persona': self.persona_combo.currentText(), 'add_mistakes': self.add_mistakes_checkbox.isChecked(), 'pause_on_punct': self.pause_on_punct_checkbox.isChecked(), 'newline_mode': newline_mode, 'use_shift_enter': self.use_shift_enter_checkbox.isChecked(), 'mouse_jitter': self.mouse_jitter_checkbox.isChecked()}
-        self.thread = QThread(); self.worker = TypingWorker(text, self.laps_spin.value(), self.delay_spin.value(), **worker_opts)
+        if self.smart_radio.isChecked():
+            newline_mode = 'Smart Newlines'
+        elif self.list_mode_radio.isChecked():
+            newline_mode = 'List Mode'
+        elif self.paste_mode_radio.isChecked():
+            newline_mode = 'Paste Mode'
+
+        worker_opts = {
+            'min_wpm': self.min_wpm_slider.value(), 
+            'max_wpm': self.max_wpm_slider.value(),
+            'type_tabs': self.type_tabs_checkbox.isChecked(), 
+            'typing_persona': self.persona_combo.currentText(), 
+            'add_mistakes': self.add_mistakes_checkbox.isChecked(), 
+            'pause_on_punct': self.pause_on_punct_checkbox.isChecked(), 
+            'newline_mode': newline_mode, 
+            'use_shift_enter': self.use_shift_enter_checkbox.isChecked(), 
+            'mouse_jitter': self.mouse_jitter_checkbox.isChecked()
+        }
+
+        self.thread = QThread()
+        self.worker = TypingWorker(text, self.laps_spin.value(), self.delay_spin.value(), **worker_opts)
         self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run); self.worker.finished.connect(self.on_typing_finished)
-        self.worker.paused_signal.connect(self.on_typing_paused); self.worker.resumed_signal.connect(self.on_typing_resumed)
-        self.worker.update_status.connect(self.status_label.setText); self.worker.update_speed.connect(lambda w: self.wpm_display.setText(f"Current: {w:.0f} WPM"))
-        self.worker.update_progress.connect(self.progress_bar.setValue); self.worker.lap_progress.connect(lambda cl, tl: self.lap_label.setText(f"Lap: {cl}/{tl}"))
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.on_typing_finished)
+        self.worker.paused_signal.connect(self.on_typing_paused)
+        self.worker.resumed_signal.connect(self.on_typing_resumed)
+        self.worker.update_status.connect(self.status_label.setText)
+        self.worker.update_speed.connect(lambda w: self.wpm_display.setText(f"Current: {w:.0f} WPM"))
+        self.worker.update_progress.connect(self.progress_bar.setValue)
+        self.worker.lap_progress.connect(lambda cl, tl: self.lap_label.setText(f"Lap: {cl}/{tl}"))
         self.worker.update_etr.connect(self.etr_label.setText)
         self.thread.start()
 
-    def toggle_always_on_top(self, checked):
-        # For macOS, we handle flags natively. For others, use the Qt hint.
-        if platform.system() == "Darwin":
-            self.apply_macos_float_behavior(checked)
-        else:
-            if checked:
-                self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
-            else:
-                self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)
-
-        self.settings.setValue("alwaysOnTop", checked)
-        self.show() # Re-show to apply flag changes
-
-    def get_savable_widgets(self):
-        return {"text": self.text_edit, "laps": self.laps_spin, "delay": self.delay_spin, "persona": self.persona_combo, "min_wpm": self.min_wpm_slider, "max_wpm": self.max_wpm_slider, "add_mistakes": self.add_mistakes_checkbox, "pause_on_punct": self.pause_on_punct_checkbox, "newline_standard": self.standard_radio, "newline_smart": self.smart_radio, "newline_list": self.list_mode_radio, "newline_paste": self.paste_mode_radio, "use_enter_for_newlines": self.use_enter_key_checkbox, "mouse_jitter": self.mouse_jitter_checkbox}
-    def load_profile(self, name):
-        path = f"Profiles/{name}"; self.settings.beginGroup(path)
-        for key, widget in self.get_savable_widgets().items():
-            if not self.settings.contains(key): continue
-            if isinstance(widget, (QCheckBox, QRadioButton)): widget.setChecked(self.settings.value(key, type=bool))
-            elif isinstance(widget, (QSlider, QSpinBox)): widget.setValue(self.settings.value(key, type=int))
-            elif isinstance(widget, QComboBox): widget.setCurrentText(self.settings.value(key))
-            elif isinstance(widget, QTextEdit): widget.setPlainText(self.settings.value(key))
-        self.settings.endGroup()
-    def save_profile(self):
-        name, ok = QInputDialog.getText(self, "Save Profile", "Enter profile name:")
-        if ok and name:
-            path = f"Profiles/{name}"; self.settings.beginGroup(path)
-            for key, widget in self.get_savable_widgets().items():
-                if isinstance(widget, (QCheckBox, QRadioButton)): self.settings.setValue(key, widget.isChecked())
-                elif isinstance(widget, (QSlider, QSpinBox)): self.settings.setValue(key, widget.value())
-                elif isinstance(widget, QComboBox): self.settings.setValue(key, widget.currentText())
-                elif isinstance(widget, QTextEdit): self.settings.setValue(key, widget.toPlainText())
-            self.settings.endGroup(); self.populate_profiles_menu()
-
-    def set_ui_for_running(self, is_running):
-        self.start_button.setEnabled(not is_running); self.stop_button.setEnabled(is_running)
-        self.tabs.setEnabled(not is_running); self.text_edit.setEnabled(not is_running); self.menu_bar.setEnabled(not is_running); self.clear_button.setEnabled(not is_running)
-        if not is_running: self.toggle_persona_controls()
     def update_speed_labels(self):
         min_wpm, max_wpm = self.min_wpm_slider.value(), self.max_wpm_slider.value()
-        if min_wpm > max_wpm: max_wpm = min_wpm; self.max_wpm_slider.setValue(min_wpm)
-        self.min_wpm_label.setText(f"Min: {min_wpm} WPM"); self.max_wpm_label.setText(f"Max: {max_wpm} WPM")
-        if self.worker: self.worker.update_speed_range(min_wpm, max_wpm)
+        if min_wpm > max_wpm:
+            max_wpm = min_wpm
+            self.max_wpm_slider.setValue(min_wpm)
+        self.min_wpm_label.setText(f"Min: {min_wpm} WPM")
+        self.max_wpm_label.setText(f"Max: {max_wpm} WPM")
+        if self.worker:
+            self.worker.update_speed_range(min_wpm, max_wpm)
 
     def stop_typing(self):
-        if self.worker: self.worker.stop()
+        if self.worker:
+            self.worker.stop()
         self.is_paused = False
 
     def resume_typing(self):
-        # Remove manual resume delay; resume immediately
         if self.worker and self.is_paused:
             self.worker.resume()
             self.status_label.setText("Status: Resumed typing...")
             self.is_paused = False
 
-    def eventFilter(self, obj, event):
-        # Resume typing when text_edit gains focus and also check active window matches
-        if obj is self.text_edit and event.type() == QEvent.FocusIn:
-            if self.is_paused and self.worker:
-                # Auto-resume logic is now handled by the worker thread when the
-                # target window is refocused, so this is intentionally left blank.
-                pass
-        return super().eventFilter(obj, event)
-
     def on_typing_paused(self):
-        self.is_paused = True; self.start_button.setEnabled(True)
+        self.is_paused = True
+        self.start_button.setEnabled(True)
         resume_hotkey = self.settings.value("resumeHotkey", DEFAULT_RESUME_HOTKEY)
         self.start_button.setText(f"RESUME ({resume_hotkey})")
         self.status_label.setText("Status: Paused. Refocus target window or press Resume.")
 
     def on_typing_resumed(self):
-        self.is_paused = False; self.start_button.setEnabled(False)
+        self.is_paused = False
+        self.start_button.setEnabled(False)
         self.update_button_hotkey_text()
         self.status_label.setText("Status: Resumed typing...")
 
     def on_typing_finished(self):
-        self.is_paused = False; self.set_ui_for_running(False); self.update_button_hotkey_text()
-        self.wpm_display.setText("Current: --- WPM"); self.etr_label.setText("ETR: --:--")
-        if self.thread: self.thread.quit(); self.thread.wait()
+        self.is_paused = False
+        self.set_ui_for_running(False)
+        self.update_button_hotkey_text()
+        self.wpm_display.setText("Current: --- WPM")
+        self.etr_label.setText("ETR: --:--")
+        if self.thread:
+            self.thread.quit()
+            self.thread.wait()
         self.thread, self.worker = None, None
+
     def show_about_dialog(self):
         dialog = AboutDialog(self)
         dialog.exec_()
@@ -696,85 +758,151 @@ class AutoTyperApp(QWidget):
             QMessageBox.information(self, "Settings Saved", "Hotkey settings have been updated. Please restart the application for them to take effect.")
 
     def update_button_hotkey_text(self):
-        start = self.settings.value("startHotkey", DEFAULT_START_HOTKEY); stop = self.settings.value("stopHotkey", DEFAULT_STOP_HOTKEY)
-        self.start_button.setText(f"START ({start})"); self.stop_button.setText(f"STOP ({stop})")
+        start = self.settings.value("startHotkey", DEFAULT_START_HOTKEY)
+        stop = self.settings.value("stopHotkey", DEFAULT_STOP_HOTKEY)
+        self.start_button.setText(f"START ({start})")
+        self.stop_button.setText(f"STOP ({stop})")
+
     def start_hotkey_listener(self):
-        self.hotkey_listener_thread = threading.Thread(target=self._run_hotkey_listener, daemon=True); self.hotkey_listener_thread.start()
+        self.hotkey_listener_thread = threading.Thread(target=self._run_hotkey_listener, daemon=True)
+        self.hotkey_listener_thread.start()
+
     def _run_hotkey_listener(self):
         try:
             with keyboard.GlobalHotKeys({
                 self.settings.value("startHotkey", DEFAULT_START_HOTKEY): self.start_typing_signal.emit,
                 self.settings.value("stopHotkey", DEFAULT_STOP_HOTKEY): self.stop_typing_signal.emit,
                 self.settings.value("resumeHotkey", DEFAULT_RESUME_HOTKEY): self.resume_typing_signal.emit
-            }) as h: h.join()
-        except Exception: pass
+            }) as h:
+                h.join()
+        except Exception as e:
+            print(f"Hotkey listener error: {e}")
 
-    def toggle_dark_mode(self, checked): self.setStyleSheet(DARK_STYLESHEET if checked else ""); self.settings.setValue("darkMode", checked)
+    def toggle_dark_mode(self, checked):
+        self.setStyleSheet(DARK_STYLESHEET if checked else "")
+        self.settings.setValue("darkMode", checked)
+
     def populate_profiles_menu(self):
         self.load_profile_menu.clear()
         self.settings.beginGroup("Profiles")
-        for name in self.settings.childGroups(): self.load_profile_menu.addAction(QAction(name, self, triggered=lambda ch, n=name: self.load_profile(n)))
+        for name in self.settings.childGroups():
+            action = QAction(name, self)
+            action.triggered.connect(lambda ch, n=name: self.load_profile(n))
+            self.load_profile_menu.addAction(action)
         self.settings.endGroup()
 
+    def get_savable_widgets(self):
+        return {
+            "text": self.text_edit, "laps": self.laps_spin, "delay": self.delay_spin,
+            "persona": self.persona_combo, "min_wpm": self.min_wpm_slider,
+            "max_wpm": self.max_wpm_slider, "add_mistakes": self.add_mistakes_checkbox,
+            "pause_on_punct": self.pause_on_punct_checkbox,
+            "newline_standard": self.standard_radio, "newline_smart": self.smart_radio,
+            "newline_list": self.list_mode_radio, "newline_paste": self.paste_mode_radio,
+            "use_shift_enter": self.use_shift_enter_checkbox,
+            "type_tabs": self.type_tabs_checkbox,
+            "mouse_jitter": self.mouse_jitter_checkbox
+        }
+
+    def load_profile(self, name):
+        path = f"Profiles/{name}"
+        self.settings.beginGroup(path)
+        for key, widget in self.get_savable_widgets().items():
+            if self.settings.contains(key):
+                if isinstance(widget, (QCheckBox, QRadioButton)):
+                    widget.setChecked(self.settings.value(key, type=bool))
+                elif isinstance(widget, (QSlider, QSpinBox)):
+                    widget.setValue(self.settings.value(key, type=int))
+                elif isinstance(widget, QComboBox):
+                    widget.setCurrentText(self.settings.value(key))
+                elif isinstance(widget, QTextEdit):
+                    widget.setPlainText(self.settings.value(key))
+        self.settings.endGroup()
+
+    def save_profile(self):
+        name, ok = QInputDialog.getText(self, "Save Profile", "Enter profile name:")
+        if ok and name:
+            path = f"Profiles/{name}"
+            self.settings.beginGroup(path)
+            for key, widget in self.get_savable_widgets().items():
+                if isinstance(widget, (QCheckBox, QRadioButton)):
+                    self.settings.setValue(key, widget.isChecked())
+                elif isinstance(widget, (QSlider, QSpinBox)):
+                    self.settings.setValue(key, widget.value())
+                elif isinstance(widget, QComboBox):
+                    self.settings.setValue(key, widget.currentText())
+                elif isinstance(widget, QTextEdit):
+                    self.settings.setValue(key, widget.toPlainText())
+            self.settings.endGroup()
+            self.populate_profiles_menu()
+
     def clean_whitespace(self):
-        # Clean whitespace in a way that is safe for code (preserves indentation)
         text = self.text_edit.toPlainText()
         lines = [line.rstrip() for line in text.splitlines()]
         text = '\n'.join(lines)
         text = re.sub(r'\n{3,}', '\n\n', text).strip()
         self.text_edit.setText(text)
 
-    def to_uppercase(self): self.text_edit.setText(self.text_edit.toPlainText().upper())
-    def to_lowercase(self): self.text_edit.setText(self.text_edit.toPlainText().lower())
-    
-    # --- START FIXED CODE ---
+    def to_uppercase(self):
+        self.text_edit.setText(self.text_edit.toPlainText().upper())
+
+    def to_lowercase(self):
+        self.text_edit.setText(self.text_edit.toPlainText().lower())
+
     def to_sentence_case(self):
         text = self.text_edit.toPlainText().lower()
-        # Split the text by sentence-ending punctuation, keeping the delimiters
         sentences = re.split(r'([.!?]\s+)', text)
         result = ''
-        
-        # Process each part of the split text
-        for i in range(0, len(sentences)):
+        for i in range(len(sentences)):
             sentence_part = sentences[i]
-            
-            # Capitalize the first letter of the main sentence bodies (at even indices)
             if i % 2 == 0 and sentence_part.strip():
-                # Find the first alphabetical character to capitalize
                 for j, char in enumerate(sentence_part):
                     if char.isalpha():
-                        # Rebuild the string with the capitalized letter
                         sentence_part = sentence_part[:j] + char.upper() + sentence_part[j+1:]
-                        break # Stop after capitalizing the first letter
-            
+                        break
             result += sentence_part
-        
         self.text_edit.setText(result)
-    # --- END FIXED CODE ---
 
     def open_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open", "", "Text Files (*.txt)");
+        path, _ = QFileDialog.getOpenFileName(self, "Open", "", "Text Files (*.txt)")
         if path:
-            with open(path, 'r', encoding='utf-8') as f: self.text_edit.setPlainText(f.read())
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    self.text_edit.setPlainText(f.read())
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not open file: {e}")
+
     def save_file(self): 
-        path, _ = QFileDialog.getSaveFileName(self, "Save As", "", "Text Files (*.txt)");
+        path, _ = QFileDialog.getSaveFileName(self, "Save As", "", "Text Files (*.txt)")
         if path:
-            with open(path, 'w', encoding='utf-8') as f: f.write(self.text_edit.toPlainText())
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(self.text_edit.toPlainText())
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not save file: {e}")
+
     def load_settings(self):
-        if geom := self.settings.value("geometry"): self.restoreGeometry(geom)
-        if self.settings.value("darkMode", False, type=bool): self.dark_mode_action.setChecked(True); self.toggle_dark_mode(True)
+        if geom := self.settings.value("geometry"):
+            self.restoreGeometry(geom)
+        if self.settings.value("darkMode", False, type=bool):
+            self.dark_mode_action.setChecked(True)
+            self.toggle_dark_mode(True)
         
         always_on_top = self.settings.value("alwaysOnTop", False, type=bool)
         self.always_on_top_action.setChecked(always_on_top)
         
-        # For non-macOS, apply the hint directly on load.
         if always_on_top and platform.system() != "Darwin":
             self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
-        # The macOS-specific part is handled in showEvent on startup.
 
         self.update_button_hotkey_text()
-    def save_settings(self): self.settings.setValue("geometry", self.saveGeometry())
-    def closeEvent(self, event): self.save_settings(); self.stop_typing(); event.accept()
+
+    def save_settings(self):
+        self.settings.setValue("geometry", self.saveGeometry())
+
+    def closeEvent(self, event):
+        self.save_settings()
+        self.stop_typing()
+        event.accept()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
