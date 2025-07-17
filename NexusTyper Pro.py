@@ -128,14 +128,11 @@ class AboutDialog(QDialog):
 class HelpDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Function Guide - NexusTyper Pro")
-        self.setGeometry(100, 100, 650, 550) # Set a good size
-        
-        layout = QVBoxLayout(self)
-        
-        text_edit = QTextEdit()
-        text_edit.setReadOnly(True)
-        text_edit.setHtml("""
+        self.setWindowTitle("Function Guide")
+        self.resize(600, 400)
+        text = QTextEdit(self)
+        text.setReadOnly(True)
+        text.setHtml("""
             <h1>NexusTyper Pro Function Guide</h1>
             
             <h2>Typing Personas</h2>
@@ -170,14 +167,11 @@ class HelpDialog(QDialog):
                 <li><b>Enable Background Mouse Jitter:</b> Gently moves the mouse cursor by a tiny amount to simulate user activity and prevent systems from going idle.</li>
             </ul>
         """)
-        layout.addWidget(text_edit)
-
-        # Add an OK button to close the dialog
-        ok_button = QPushButton("OK")
-        button_box = QDialogButtonBox(Qt.Horizontal)
-        button_box.addButton(ok_button, QDialogButtonBox.AcceptRole)
-        ok_button.clicked.connect(self.accept)
-        layout.addWidget(button_box)
+        layout = QVBoxLayout(self)
+        layout.addWidget(text)
+        btn = QPushButton("OK")
+        btn.clicked.connect(self.accept)
+        layout.addWidget(btn)
 
 # Settings dialog for hotkeys
 class SettingsDialog(QDialog):
@@ -1008,6 +1002,16 @@ class AutoTyperApp(QWidget):
             self.populate_profiles_menu()
         except Exception as e:
             QMessageBox.critical(self, "Error saving profile", f"Could not save profile:\n{e}")
+    
+    def delete_profile(self, name):
+        # remove the entire group for that profile
+        path = f"Profiles/{name}"
+        self.settings.beginGroup(path)
+        self.settings.remove("")      # remove all keys under this group
+        self.settings.endGroup()
+        self.settings.sync()
+        self.populate_profiles_menu()
+
 
     def clean_whitespace(self):
         text = self.text_edit.toPlainText()
