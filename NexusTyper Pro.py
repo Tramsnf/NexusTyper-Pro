@@ -1,3 +1,4 @@
+import faulthandler; faulthandler.enable()
 import sys
 import time
 import re
@@ -881,13 +882,17 @@ class AutoTyperApp(QWidget):
         dialog = SettingsDialog(self)
         result = dialog.exec_()
 
+        # We must restore the window and listener BEFORE showing the next message box
         if platform.system() == "Darwin" and is_on_top:
             self.apply_macos_float_behavior(True)
         self.start_listener()
 
         if result == QDialog.Accepted:
             self.update_button_hotkey_text()
+            # NOW we can safely show the confirmation message
+            self.stop_listener()
             QMessageBox.information(self, "Settings Saved", "Hotkey settings have been updated. Please restart the application for them to take effect.")
+            self.start_listener()
             
     def show_help_dialog(self):
         self.stop_listener()
@@ -917,11 +922,12 @@ class AutoTyperApp(QWidget):
         self.hotkey_listener_thread.start()
 
     def stop_listener(self):
-        """Stops the global hotkey listener."""
         if hasattr(self, 'hotkey_listener') and self.hotkey_listener:
-            self.hotkey_listener.stop()
-        if hasattr(self, 'hotkey_listener_thread') and self.hotkey_listener_thread:
-            self.hotkey_listener_thread.join() # Wait for the thread to fully exit
+            try:
+                self.hotkey_listener.stop()
+            except Exception:
+                pass
+        # no join here to avoid blocking UI
         
     def _run_listener(self):
         """The target function for the listener thread."""
@@ -983,18 +989,10 @@ class AutoTyperApp(QWidget):
         self.settings.endGroup()
 
     def save_profile(self):
-        self.stop_listener()
-        is_on_top = self.always_on_top_action.isChecked()
-        if platform.system() == "Darwin" and is_on_top:
-            self.apply_macos_float_behavior(False)
-
         name, ok = QInputDialog.getText(self, "Save Profile", "Enter profile name:")
-        
-        if platform.system() == "Darwin" and is_on_top:
-            self.apply_macos_float_behavior(True)
-        self.start_listener()
-
-        if ok and name:
+        if not ok or not name.strip():
+            return
+        try:
             path = f"Profiles/{name}"
             self.settings.beginGroup(path)
             for key, widget in self.get_savable_widgets().items():
@@ -1008,6 +1006,8 @@ class AutoTyperApp(QWidget):
                     self.settings.setValue(key, widget.toPlainText())
             self.settings.endGroup()
             self.populate_profiles_menu()
+        except Exception as e:
+            QMessageBox.critical(self, "Error saving profile", f"Could not save profile:\n{e}")
 
     def clean_whitespace(self):
         text = self.text_edit.toPlainText()
@@ -1037,42 +1037,24 @@ class AutoTyperApp(QWidget):
         self.text_edit.setText(result)
 
     def open_file(self):
-        self.stop_listener()
-        is_on_top = self.always_on_top_action.isChecked()
-        if platform.system() == "Darwin" and is_on_top:
-            self.apply_macos_float_behavior(False)
+        path, _ = QFileDialog.getOpenFileName(self, "Open Text File", "", "*.txt")
+        if not path:
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                self.text_edit.setPlainText(f.read())
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not open file: {e}")
 
-        path, _ = QFileDialog.getOpenFileName(self, "Open", "", "Text Files (*.txt)")
-        
-        if platform.system() == "Darwin" and is_on_top:
-            self.apply_macos_float_behavior(True)
-        self.start_listener()
-
-        if path:
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    self.text_edit.setPlainText(f.read())
-            except Exception as e:
-                QMessageBox.warning(self, "Error", f"Could not open file: {e}")
-
-    def save_file(self): 
-        self.stop_listener()
-        is_on_top = self.always_on_top_action.isChecked()
-        if platform.system() == "Darwin" and is_on_top:
-            self.apply_macos_float_behavior(False)
-            
-        path, _ = QFileDialog.getSaveFileName(self, "Save As", "", "Text Files (*.txt)")
-        
-        if platform.system() == "Darwin" and is_on_top:
-            self.apply_macos_float_behavior(True)
-        self.start_listener()
-
-        if path:
-            try:
-                with open(path, 'w', encoding='utf-8') as f:
-                    f.write(self.text_edit.toPlainText())
-            except Exception as e:
-                QMessageBox.warning(self, "Error", f"Could not save file: {e}")
+    def save_file(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save Text File As...", "", "*.txt")
+        if not path:
+            return
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(self.text_edit.toPlainText())
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not save file: {e}")
 
     def load_settings(self):
         if geom := self.settings.value("geometry"):
