@@ -1963,7 +1963,6 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     # Rely on Qt window management for stability across platforms
-
     window = AutoTyperApp()
     window.show()
     sys.exit(app.exec_())
