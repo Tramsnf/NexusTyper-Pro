@@ -1864,6 +1864,7 @@ class AutoTyperApp(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Delete Failed", f"Could not delete profile:\n{e}")
 
+
     def clean_whitespace(self):
         text = self.text_edit.toPlainText()
         lines = [line.rstrip() for line in text.splitlines()]
