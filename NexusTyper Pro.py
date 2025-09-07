@@ -424,6 +424,7 @@ class TypingWorker(QObject):
             self._allowed_keys = set()
         # New modes
         self.ime_friendly = kwargs.get('ime_friendly', False)
+        self.unicode_hex_typing = kwargs.get('unicode_hex_typing', False)
         self.compliance_mode = kwargs.get('compliance_mode', False)
         blocked = kwargs.get('blocked_apps', "") or ""
         self.blocked_apps = [b.strip().lower() for b in blocked.split(',') if b.strip()]
@@ -538,8 +539,41 @@ class TypingWorker(QObject):
 
     def _mouse_jitter_thread(self):
         # Moves mouse slightly at random intervals to simulate activity
-        while self._running:
-            pyautogui.move(random.randint(-1, 1), random.randint(-1, 1), duration=0.1)
+        # Respect PyAutoGUI fail-safe (corners) and stop jitter if triggered.
+        try:
+            screen_w, screen_h = pyautogui.size()
+        except Exception:
+            screen_w, screen_h = None, None
+        corner_guard = 2  # pixels from the edges considered fail-safe zone
+
+        while self._running and self.enable_mouse_jitter:
+            try:
+                try:
+                    x, y = pyautogui.position()
+                except Exception:
+                    x = y = None
+                # If cursor is in a fail-safe corner/edge, stop jitter immediately
+                if screen_w and screen_h and x is not None and y is not None:
+                    if (x <= corner_guard or y <= corner_guard or
+                        x >= screen_w - 1 - corner_guard or y >= screen_h - 1 - corner_guard):
+                        try:
+                            self.update_status.emit("Mouse jitter stopped: cursor at screen edge (fail-safe zone).")
+                        except Exception:
+                            pass
+                        break
+
+                # Small relative move
+                pyautogui.move(random.randint(-1, 1), random.randint(-1, 1), duration=0.1)
+            except Exception as e:
+                # Stop on PyAutoGUI fail-safe without crashing the app
+                if e.__class__.__name__ == 'FailSafeException':
+                    try:
+                        self.update_status.emit("Mouse jitter stopped due to PyAutoGUI fail-safe.")
+                    except Exception:
+                        pass
+                    break
+                # For any other transient error, back off briefly and continue
+                time.sleep(0.3)
             time.sleep(random.uniform(0.5, 3))
 
     def _paste_text(self, text):
@@ -555,6 +589,32 @@ class TypingWorker(QObject):
                 pyperclip.copy(original_clip)
             except Exception:
                 pass
+
+    def _type_unicode_char_macos(self, ch: str):
+        """Types a single Unicode character using macOS 'Unicode Hex Input'.
+        The user must enable this input source in System Settings > Keyboard > Input Sources.
+        """
+        try:
+            cp = ord(ch)
+            hexstr = f"{cp:04X}"
+            pyautogui.keyDown('option')
+            for d in hexstr:
+                pyautogui.typewrite(d.lower())
+            pyautogui.keyUp('option')
+        except Exception:
+            # Fallback to ASCII approximation
+            self._type_with_ascii_fallback(ch)
+
+    def _type_with_ascii_fallback(self, ch: str):
+        mapping = {
+            '∀': 'for all', '∃': 'exists', '∑': 'sum', '∫': 'int', '√': 'sqrt', '∞': 'infty',
+            '≤': '<=', '≥': '>=', '≠': '!=', '≈': '~=', '→': '->', '←': '<-', '↔': '<->', '·': '*',
+            '×': '*', '÷': '/', '∈': ' in ', '∉': ' notin ', '⊂': ' subset ', '⊆': ' subseteq ', '∪': ' U ', '∩': ' n ',
+            'α': 'alpha', 'β': 'beta', 'γ': 'gamma', 'δ': 'delta', 'ε': 'epsilon', 'θ': 'theta', 'λ': 'lambda', 'µ': 'mu',
+            'π': 'pi', 'σ': 'sigma', 'ω': 'omega', 'ℝ': 'R', '′': "'", '″': '"'
+        }
+        out = mapping.get(ch, '?')
+        pyautogui.typewrite(out, interval=0.002)
 
     def _is_blocked_active(self):
         if not self.compliance_mode:
@@ -597,7 +657,14 @@ class TypingWorker(QObject):
                 else:
                     pyautogui.press('enter')
             else:
-                pyautogui.typewrite(char, interval=0.002)
+                # Type non-ASCII via macOS Unicode Hex Input if enabled
+                if self.unicode_hex_typing and ord(char) > 0x7F:
+                    if platform.system() == 'Darwin':
+                        self._type_unicode_char_macos(char)
+                    else:
+                        self._type_with_ascii_fallback(char)
+                else:
+                    pyautogui.typewrite(char, interval=0.002)
             
             chars_completed += 1
             elapsed = (time.time() - overall_start_time) - total_pause_duration
@@ -710,7 +777,21 @@ class TypingWorker(QObject):
                             break
                         stripped = line.lstrip()
                         if self.ime_friendly:
-                            self._paste_text(stripped)
+                            if self.unicode_hex_typing:
+                                # Type without paste: per-char hex for Unicode
+                                for ch in stripped:
+                                    if not self._running:
+                                        break
+                                    if ord(ch) > 0x7F and platform.system() == 'Darwin':
+                                        self._type_unicode_char_macos(ch)
+                                    elif ord(ch) > 0x7F:
+                                        self._type_with_ascii_fallback(ch)
+                                    else:
+                                        pyautogui.typewrite(ch, interval=0.002)
+                                    chars_completed += 1
+                                    self.update_progress.emit(chars_completed)
+                            else:
+                                self._paste_text(stripped)
                             chars_completed += len(stripped)
                             self.update_progress.emit(chars_completed)
                         else:
@@ -743,10 +824,30 @@ class TypingWorker(QObject):
                                 self.update_status.emit(f"Macro ignored: {msg}")
                             continue
                         if self.ime_friendly and segment:
-                            self._paste_text(segment)
-                            chars_completed += len(segment)
-                            self.update_progress.emit(chars_completed)
-                            self._sleep_interruptible(random.uniform(0.02, 0.06))
+                            if self.unicode_hex_typing:
+                                for ch in segment:
+                                    if not self._running:
+                                        break
+                                    if ch == '\n':
+                                        if self.use_shift_enter:
+                                            pyautogui.hotkey('shift', 'enter')
+                                        else:
+                                            pyautogui.press('enter')
+                                    else:
+                                        if ord(ch) > 0x7F and platform.system() == 'Darwin':
+                                            self._type_unicode_char_macos(ch)
+                                        elif ord(ch) > 0x7F:
+                                            self._type_with_ascii_fallback(ch)
+                                        else:
+                                            pyautogui.typewrite(ch, interval=0.002)
+                                    chars_completed += 1
+                                    self.update_progress.emit(chars_completed)
+                                    self._sleep_interruptible(random.uniform(0.01, 0.03))
+                            else:
+                                self._paste_text(segment)
+                                chars_completed += len(segment)
+                                self.update_progress.emit(chars_completed)
+                                self._sleep_interruptible(random.uniform(0.02, 0.06))
                         else:
                             chars_completed, total_pause_duration, still_running = self._type_segment(
                                 segment, overall_start_time, chars_completed, total_pause_duration, total_chars_overall)
@@ -1108,6 +1209,76 @@ class AutoTyperApp(QWidget):
             return 'browser'
         return 'unknown'
 
+    def _detect_content_kind(self, text: str) -> str:
+        """Heuristic content detection: returns 'code', 'math', or 'prose'."""
+        t = text.strip()
+        if not t:
+            return 'prose'
+        try:
+            if self._looks_like_code(t):
+                return 'code'
+            if self._looks_like_math(t):
+                return 'math'
+        except Exception:
+            pass
+        return 'prose'
+
+    def _contains_non_ascii(self, t: str) -> bool:
+        try:
+            return any(ord(ch) > 0x7F for ch in t)
+        except Exception:
+            return False
+
+    def _looks_like_code(self, t: str) -> bool:
+        # Fast signals
+        if '```' in t or '\t' in t:
+            return True
+        # Programming keywords across common languages
+        code_keywords = [
+            'import ', 'from ', 'def ', 'class ', 'return', 'if ', 'elif ', 'else:', 'while ', 'for ', 'try:', 'except', 'finally:',
+            'function ', 'var ', 'let ', 'const ', '=>', 'console.log', 'export ', 'require(', 'module.exports',
+            '#include', 'using ', 'namespace ', 'public ', 'private ', 'protected ', 'static ', 'void ', 'int ', 'string ', 'std::',
+            'fn ', 'match ', 'impl ', 'package ', 'interface ', 'enum ', 'struct '
+        ]
+        if any(kw in t for kw in code_keywords):
+            return True
+        # Symbols and patterns common in code
+        code_symbol_hits = sum(1 for ch in t if ch in '{}();<>[]:=#')
+        lines = t.splitlines()
+        semicolon_lines = sum(1 for ln in lines if ln.strip().endswith(';'))
+        brace_lines = sum(1 for ln in lines if ln.strip().endswith('{') or ln.strip().endswith('}'))
+        indent_lines = sum(1 for ln in lines if ln.startswith('    ') or ln.startswith('\t'))
+        # Heuristic thresholds
+        if code_symbol_hits >= max(6, len(t) // 80):
+            return True
+        if (semicolon_lines + brace_lines + indent_lines) >= max(3, len(lines) // 4):
+            return True
+        return False
+
+    def _looks_like_math(self, t: str) -> bool:
+        # Detect LaTeX math markers or Unicode math symbols
+        latex_markers = [
+            '\\frac', '\\sum', '\\prod', '\\int', '\\sqrt', '\\lim', '\\infty', '\\approx', '\\neq', '\\leq', '\\geq',
+            '\\alpha', '\\beta', '\\gamma', '\\delta', '\\theta', '\\lambda', '\\mu', '\\pi', '\\sigma', '\\omega', '$'
+        ]
+        if any(m in t for m in latex_markers):
+            return True
+        math_chars = set('∑∏√∞≤≥≈≠±°×÷∂∇πθαλµσδΩω∧∨⊂⊆∈∉∪∩∘→←↔·′″≃≡⊥∥∖∫∮∝')
+        math_hits = sum(1 for ch in t if ch in math_chars)
+        caret_unders = t.count('^') + t.count('_')
+        # Equations often have many operators
+        operator_hits = sum(1 for ch in t if ch in '+-*/=<>')
+        if math_hits >= 1:
+            return True
+        if caret_unders >= 2 and operator_hits >= 2:
+            return True
+        # Many short lines with operators suggests laid-out formula
+        lines = t.splitlines()
+        short_eq_lines = sum(1 for ln in lines if len(ln.strip()) <= 24 and any(op in ln for op in ['=', '≤', '≥', '≠']))
+        if short_eq_lines >= 2:
+            return True
+        return False
+
     def showEvent(self, event):
         """Ensure window flags are applied on show."""
         super().showEvent(event)
@@ -1297,6 +1468,14 @@ class AutoTyperApp(QWidget):
         # New: IME-friendly typing and compliance guardrails
         self.ime_friendly_checkbox = QCheckBox("IME-friendly (use paste instead of per-key typing)")
         newline_layout.addWidget(self.ime_friendly_checkbox)
+        # macOS Unicode Hex fallback for non-ASCII when paste is blocked
+        self.unicode_hex_checkbox = QCheckBox("Unicode Hex typing (macOS fallback for non-ASCII)")
+        if platform.system() != 'Darwin':
+            self.unicode_hex_checkbox.setEnabled(False)
+            self.unicode_hex_checkbox.setToolTip("Available on macOS only. Enable the 'Unicode Hex Input' keyboard layout.")
+        else:
+            self.unicode_hex_checkbox.setToolTip("Requires 'Unicode Hex Input' input source in System Settings > Keyboard.")
+        newline_layout.addWidget(self.unicode_hex_checkbox)
         self.compliance_mode_checkbox = QCheckBox("Compliance Mode (block browsers)")
         newline_layout.addWidget(self.compliance_mode_checkbox)
         blocked_layout = QHBoxLayout()
@@ -1438,6 +1617,9 @@ class AutoTyperApp(QWidget):
             try:
                 title = self._get_active_window_title_main()
                 category = self._categorize_title(title)
+                # Also detect content nature (code/math/prose)
+                content_kind = self._detect_content_kind(text)
+                needs_ime = (content_kind == 'math') or self._contains_non_ascii(text)
                 if category == 'code':
                     self.list_mode_radio.setChecked(True)
                     self.press_esc_checkbox.setChecked(True)
@@ -1448,27 +1630,60 @@ class AutoTyperApp(QWidget):
                     self.status_label.setText(f"Status: Auto-optimized for code editor ({title})")
                     newline_mode = 'List Mode'
                 elif category == 'chat':
-                    self.smart_radio.setChecked(True)
+                    # Preserve math and code where appropriate in chat inputs
+                    if content_kind == 'math':
+                        self.standard_radio.setChecked(True)
+                        newline_mode = 'Standard'
+                    elif content_kind == 'code':
+                        self.list_mode_radio.setChecked(True)
+                        newline_mode = 'List Mode'
+                    else:
+                        self.smart_radio.setChecked(True)
+                        newline_mode = 'Smart Newlines'
                     self.use_shift_enter_checkbox.setChecked(True)
                     self.press_esc_checkbox.setChecked(False)
                     self.add_mistakes_checkbox.setChecked(True)
                     self.pause_on_punct_checkbox.setChecked(False)
                     self.status_label.setText(f"Status: Auto-optimized for chat app ({title})")
-                    newline_mode = 'Smart Newlines'
                 elif category == 'text':
-                    self.standard_radio.setChecked(True)
+                    # In plain text boxes, keep text as-is; avoid Smart for math
+                    if content_kind == 'math':
+                        self.standard_radio.setChecked(True)
+                        newline_mode = 'Standard'
+                    elif content_kind == 'code':
+                        # If user pasted code into a plain text app, prefer Standard to preserve spaces/tabs
+                        self.standard_radio.setChecked(True)
+                        newline_mode = 'Standard'
+                    else:
+                        self.standard_radio.setChecked(True)
+                        newline_mode = 'Standard'
                     self.press_esc_checkbox.setChecked(False)
                     self.use_shift_enter_checkbox.setChecked(False)
                     self.type_tabs_checkbox.setChecked(True)
                     self.add_mistakes_checkbox.setChecked(False)
                     self.pause_on_punct_checkbox.setChecked(True)
                     self.status_label.setText(f"Status: Auto-optimized for plain text ({title})")
-                    newline_mode = 'Standard'
                 elif category == 'browser':
-                    if newline_mode == 'Standard':
+                    # If content looks like code, prefer List Mode for browser-based editors
+                    if content_kind == 'code':
+                        self.list_mode_radio.setChecked(True)
+                        newline_mode = 'List Mode'
+                    elif content_kind == 'math':
+                        self.standard_radio.setChecked(True)
+                        newline_mode = 'Standard'
+                    elif newline_mode == 'Standard':
                         self.smart_radio.setChecked(True)
                         newline_mode = 'Smart Newlines'
                     self.status_label.setText(f"Status: Auto-adjusted for browser ({title})")
+
+                # Force IME-friendly paste when math or any non-ASCII is present
+                if needs_ime:
+                    self.ime_friendly_checkbox.setChecked(True)
+                    # Call out in status for clarity, but don't overwrite previous message
+                    try:
+                        self.status_label.setText(self.status_label.text() + " | IME-friendly paste enabled for Unicode/math")
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -1484,6 +1699,7 @@ class AutoTyperApp(QWidget):
             'mouse_jitter': self.mouse_jitter_checkbox.isChecked(),
             'press_esc': self.press_esc_checkbox.isChecked(),
             'ime_friendly': self.ime_friendly_checkbox.isChecked(),
+            'unicode_hex_typing': self.unicode_hex_checkbox.isChecked(),
             'compliance_mode': self.compliance_mode_checkbox.isChecked(),
             'blocked_apps': self.blocked_apps_edit.text(),
             'auto_detect': self.auto_detect_checkbox.isChecked()
