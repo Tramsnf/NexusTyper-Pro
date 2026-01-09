@@ -1,3 +1,9 @@
 *Nex
 *NexusTyper Pro copy.py
 *NexusTyper Pro copy 2.py
+__pycache__/
+*.pyc
+OUTPUT TEST.py
+PLAIN TEXT OUTPUT TEST.txt
+.gitignore
+.gitignore

@@ -1,0 +1,412 @@
+REQUEST: RCA Review Deliverable
+
+Objective
+Construct a forensic timeline of the chain-of-command breakdown during the incident window described in the input. Identify divergence points between required actions in the governing protocol and administrative directives and/or operational behavior.
+
+Tasks
+1. Protocol variance detection (protocol compliance)
+Compare administrative directives and operational outcomes documented in the input against the triggers and mandatory actions in the governing protocol and any attached intake/control procedure(s).
+
+ - Identify two specific instances where a high-severity surge/disaster trigger required immediate suspension of automated intake/acceptance (or an equivalent automation), but documented directives or documented operational behavior indicate the automation remained active or was treated as active.
+ - For each instance, cite the relevant policy section number(s) and the supporting source timestamp(s) from the administrative and operational artifacts.
+ - For each instance, describe the downstream operational consequence in neutral terms (for example: intake remained open; queueing continued; external routing assumptions remained unchanged).
+
+2. Timeline reconstruction (incident window)
+Reconstruct the timeline for the incident window specified in the input. Use the clinical record/log as the primary clinical time anchor, administrative communications as the administrative time anchor, and operational system logs relevant to intake/routing/capacity as corroborating anchors (for example: transfer/dispatch communications, routing-status audits, capacity dashboards, staffing snapshots). Use other sources only for supporting context.
+Pinpoint:
+
+ - The first moment front-line clinical staff raised saturation/overcrowding concerns.
+ - The first moment the protocol-defined capacity metric exceeded the activation threshold for the highest surge/disaster level.
+ - The first documented administrative directive rejecting surge activation and/or any external routing-status authorization (if applicable).
+ - The exact time any external routing-status change (for example: diversion/redirect) was authorized and became effective per the relevant audit log (if present).
+ - The latest moment the adverse/sentinel event was underway as implied by clinical and administrative entries.
+
+3. Conflict synthesis (critical resource capacity discrepancy)
+Analyze discrepancies between critical resource capacity reported by clinical leadership and the capacity cited by administration and/or reflected in system views (for example: ICU/telemetry beds if applicable).
+Explain the discrepancy using only context present in the input, including:
+
+ - Staffed/operational capacity vs licensed/physical capacity definitions and timestamps (as defined by the input).
+ - Competency constraints limiting redeployment feasibility.
+ - Any capacity units (rooms/beds/slots) listed as available in administrative systems while operationally closed/unavailable.
+ - Effects of any forced/unsafe placement into a previously closed/unavailable unit on dashboard interpretations.
+
+Deliverable format requirements
+Return a structured Markdown document using the following headers exactly (spelling and order must match):
+
+Sentinel Event Timeline
+
+Protocol Violations (Governing Protocol)
+
+Data Discrepancy Analysis (Critical Resource Capacity)
+
+Root Cause Statement
+
+Documentation expectations
+- Base the analysis strictly on the discovery package below. Do not introduce external facts.
+- When timestamps conflict, explicitly state which source is treated as the anchor for that segment and why.
+- When asserting a protocol violation, cite the exact policy section number and quote only the minimum necessary clause (short excerpts).
+- Describe capacity and staffing using the provided counts and definitions; do not derive additional metrics beyond the values shown.
+- Focus on process failure and chain-of-command deviation.
+
+INPUT DATA
+
+St. Jude Regional Medical Center
+Sentinel Event Discovery Package (RCA Support)
+
+Context
+A delayed access to definitive care occurred during an internal capacity crisis ("Code Triage") while the region experienced power instability. The review window is 18:00 to 22:00 EST on Nov 14 (local time). Clinical logs and system feeds use 24-hour timestamps. The email archive uses labeled EST times.
+
+Source handling notes
+- Identify the governing protocol/policy document(s) and any attached intake/control procedure(s) within the input. Identify which artifacts constitute (a) administrative communications, (b) clinical records/logs, and (c) operational system logs (for example: transfer/dispatch communications, routing-status audits, capacity dashboards, staffing snapshots). Use the dataset’s labels as-is, whatever they are.
+- Treat operational artifacts as potentially inconsistent due to role-based visibility and differing system definitions (for example, “licensed” vs “staffed” capacity, if such terms appear).
+
+SOURCE A: Emergency Operations Plan (EOP)
+Title: Annex K: Capacity Management and Surge Protocols
+Version: 4.1 (Active)
+Approved by: Medical Executive Committee
+
+Section 1: Definitions
+1.1 NEDOCS Score: Score calculated to assess ED overcrowding. Score > 180 triggers Code Violet (Internal Disaster).
+1.2 Divert Status: Formal declaration to EMS to bypass the facility. Only the Incident Commander (IC) or the CEO can authorize Divert.
+
+Section 2: Chain of Command
+2.1 Business Hours (07:00-17:00): Chief Nursing Officer (CNO) acts as Incident Commander.
+2.2 Off Hours (17:00-07:00): Nursing House Supervisor assumes Functional Command until Administrator On Call (AOC) responds.
+2.3 AOC response requirement: AOC must respond within 15 minutes of a Code Violet escalation.
+
+Section 3: Surge Levels and Triggers
+3.1 Level 1 (Warning): ED Holds > 5.
+Mandatory action: House Supervisor alerts Unit Managers.
+
+3.2 Level 2 (Critical): ED Holds > 10 OR ICU at zero staffed beds.
+Mandatory action: AOC notified. Elective surgeries cancelled.
+
+3.3 Level 3 (Disaster / Code Violet)
+Trigger: NEDOCS > 180 OR critical infrastructure failure (example: power instability affecting clinical operations).
+Mandatory action: Auto-Accept protocol is suspended (Transfer Center intake controls).
+Mandatory action: Reverse Triage protocol is activated (discharge stable patients immediately).
+Mandatory action: If ICU is full, PACU must act as overflow ICU.
+
+Section 4: Exceptions
+4.1 Protected Code Blue: Patients in cardiac arrest on hospital grounds must be accepted regardless of diversion status.
+4.2 Fiscal Override: CFO approval required for any diversion lasting longer than 4 hours due to revenue impact.
+
+SOURCE A-APPENDIX: Transfer Center Intake Controls (Local Procedure Attachment)
+Attachment label: Annex K Appendix TC-1 (Transfer Center Intake Controls)
+Revision: TC-1.6
+Owner: Transfer Center Manager
+Effective: Current at time of incident
+
+TC-1 Definitions
+TC-1.1 Auto-Accept (default ON): Inbound transfer requests meeting predefined clinical criteria are accepted without Incident Commander approval.
+TC-1.2 Auto-Accept Suspended (required at Level 3): All inbound transfer requests require Incident Commander approval prior to acceptance and bed assignment.
+TC-1.3 Suspension trigger: Any Level 3 / Code Violet condition per Annex K 3.3 requires immediate Auto-Accept suspension and a Transfer Center notification to the House Supervisor and AOC.
+TC-1.4 Documentation rule: Transfer Center logs must record Auto-Accept state changes and the approving authority (role and timestamp).
+
+SOURCE B: Administration Email Archive (Reconstructed Content Summary)
+Compilation method: Email bodies summarized to remove identifiers and standardize language. Timestamps and distribution reflect archive headers. All times labeled EST.
+
+19:45 EST - Email from AOC Marcus Thorne (VP Ops) to House Supervisor Sarah Jenkins and ED Director David Miller:
+ - AOC acknowledged ED volume concerns.
+ - AOC directed that Divert Status must not be used during the night due to performance-metric concerns.
+ - AOC cited an administrative dashboard showing four ICU beds as available in Rooms 402, 405, 406, 408.
+ - AOC directed movement of ED holds to ICU beds.
+ - AOC directed that Code Violet not be triggered at that time.
+ - AOC stated reassessment would occur in approximately one hour.
+
+19:55 EST - Email from House Supervisor Sarah Jenkins to AOC Marcus Thorne and ED Director David Miller:
+ - House Supervisor stated the dashboard reflected licensed beds, not staffed beds.
+ - House Supervisor stated two ICU nurse call-outs occurred during storm/power instability conditions.
+ - House Supervisor stated the four referenced ICU rooms were closed due to staffing ratios.
+ - House Supervisor stated twelve admitted patients were holding in the ED.
+ - House Supervisor stated conditions met Level 3 surge and Code Violet criteria.
+ - House Supervisor stated Annex K required PACU overflow activation.
+ - House Supervisor requested authorization to activate the PACU call-team.
+
+20:15 EST - Email from AOC Marcus Thorne to House Supervisor Sarah Jenkins:
+ - AOC denied PACU call-team activation at that time due to labor cost (triple-time).
+ - AOC directed alternative staffing actions, including exploring redeployment of Med/Surg nursing staff.
+ - AOC reiterated denial of Divert Status authorization.
+
+21:30 EST - Email from ED Director David Miller to AOC Marcus Thorne and C-suite distribution:
+ - ED Director reported a severe adverse event related to capacity constraints.
+ - EMS transported multi-trauma (bus crash on I-95) based on presumed capacity (no divert in effect).
+ - ED Director reported no trauma bay availability on arrival.
+ - ED Director reported a 12-minute hallway wait while staff attempted to relocate an ED hold.
+ - ED Director stated the event met sentinel-event criteria.
+ - ED Director stated Safe Harbor protections were being invoked for nursing staff.
+
+SOURCE C: Clinical Shift Logs (Normalized Content)
+Compilation method: Handwritten-style entries transcribed and normalized to third-person statements. Times are 24-hour, EST.
+
+UNIT: Emergency Department (ED Charge Nurse: T. Reynolds)
+18:00 - Shift start documented. Waiting room described as standing-room only. Approximate lobby count documented as 45.
+18:15 - Power flicker documented. Generator engagement for critical outlets documented. CT Scanner 2 documented as down and rebooting.
+18:30 - Triage overload documented. EMS destination guidance requests documented. ED saturation documented. House Supervisor contacted.
+18:45 - Stroke alert documented in Bay 4. No bed availability documented. Hallway treatment documented. Safety concern documented.
+19:00 - NEDOCS documented as 192 (above Annex K Code Violet trigger threshold).
+19:10 - House Supervisor communication documented: AOC resistance to divert authorization documented; stated reason documented as metrics.
+19:30 - ED hold count documented as 12. ICU holds documented as 3. ICU staffing refusal documented as no staff.
+20:00 - Continued lack of patient movement documented. PACU overflow denial by AOC documented.
+20:45 - Major trauma notification documented (bus crash), ETA five minutes.
+20:50 - Trauma bay unavailability documented: Trauma Bay 1 occupied by septic hold; Trauma Bay 2 occupied by stroke.
+21:00 - Trauma patient arrival documented.
+21:30 - Code Blue documented in Hallway B.
+
+UNIT: Intensive Care Unit (ICU Charge Nurse: B. Karter)
+17:45 - Handoff documented. Census documented as 16/20.
+17:50 - Staffing check documented. Two ICU nurse call-outs documented.
+18:00 - Closure of four ICU rooms documented (Rooms 402, 405, 406, 408) to maintain 1:2 ratios.
+18:15 - House Supervisor notification of closed beds documented.
+19:00 - ED request for septic shock bed documented; inability to accept due to staffing documented.
+19:15 - House Supervisor request to accept an ED boarder documented; refusal documented as unsafe.
+20:00 - Administrative request documented to redeploy Med/Surg nurses; competency limits documented (non-ACLS; drip management limits); redeployment refusal documented.
+21:00 - Admission into Room 402 documented despite staffing gap; unsafe assignment documented.
+21:45 - Risk Management notification documented regarding unsafe assignment.
+
+SOURCE D: Facility Operations Event Feed (Unfiltered Extract)
+Export label: OpsFeed_2023-11-14
+Times are 24-hour, EST.
+Note: Entries below include both signal and "background noise" typical of a high-volume night. Use for context and corroboration only.
+
+18:02 - Facilities: Generator 3 fuel level 85%.
+18:06 - IT Helpdesk: EMR performance degradation ticket #9921 opened.
+18:07 - Transport: stretcher delay approximately 30 minutes.
+18:12 - Facilities: Elevator B interruption; service ticket opened.
+18:14 - IT: UPS battery backup engaged (server room).
+18:20 - Staffing Office: three call-outs documented for night shift.
+18:36 - PACU: census high; overflow readiness not activated.
+18:42 - IT: internet jitter documented; ISP ticket updated.
+18:56 - Security: ambulance bay door maintenance requested.
+19:01 - Pharmacy: Pyxis unit offline alert (ED).
+19:10 - Transport: transfer delays exceed 45 minutes.
+19:27 - Blood bank: O-negative low threshold alert.
+19:39 - IT: EMR latency alarm threshold exceeded (>500ms).
+19:45 - Facilities: generator load 42% recorded.
+19:58 - IT: EMR performance intermittent.
+20:03 - Facilities: power instability persists; generator remains active.
+20:09 - Security: ED entrance access control tightened.
+20:29 - Staffing Office: PACU call-team roster status reconfirmed.
+20:47 - Radiology: ED notified of bus crash confirmation via EMS radio.
+21:12 - Risk Management: callback pending logged.
+21:30 - IT: administrative distribution email event logged (mail server queue).
+21:45 - Risk Management: escalation activity logged (cross-reference Source C).
+22:00 - Facilities: generator remains active; transition planning pending.
+
+SOURCE D (continued): Extended background event stream (for situational awareness)
+17:55 - Facilities: brief voltage sag observed on utility feed; generator readiness check initiated.
+17:57 - ED: waiting room chair shortage reported; overflow seating initiated in hallway.
+17:59 - EVS: delayed terminal clean request logged for ED Bay 6.
+18:01 - Respiratory: ventilator transport request queued; ETA delayed due to staffing.
+18:03 - IT: intermittent Wi-Fi disconnects reported in ED triage area.
+18:04 - Security: crowd control requested for ED lobby; visitor volume elevated.
+18:05 - Lab: specimen runner delay noted; pneumatic tube station queue building.
+18:08 - Radiology: CT Scanner 2 offline status confirmed; estimated return unknown.
+18:09 - Nursing Admin: request logged for additional sitters; none available.
+18:10 - Facilities: generator transfer test completed; no fault indicated.
+18:11 - Pharmacy: IV pump channel shortage noted; redistribution requested.
+18:13 - Transport: elevator outage impacting patient movement; workaround routing initiated.
+18:16 - ED: hallway bed utilization increased; additional monitors requested.
+18:17 - IT: EMR workstation login delays reported; ticket appended to #9921.
+18:18 - Lab: blood gas analyzer maintenance deferred due to workload.
+18:19 - ICU: critical drip inventory check requested; shortages not confirmed.
+18:21 - Staffing Office: additional call-out recorded (non-ICU); float pool unchanged.
+18:22 - Dietary: tray service delayed for ED holds; nursing requests disposable meal packs.
+18:23 - Facilities: oxygen zone pressure variance noted; normalized without intervention.
+18:24 - Security: EMS bay congestion reported; traffic pattern adjusted.
+18:25 - ED: triage wait time estimate exceeded 3 hours; lobby complaints escalating.
+18:26 - IT: VOIP jitter reported on unit phones; vendor ticket created.
+18:27 - Radiology: portable x-ray backlog reported; ED waitlist extended.
+18:28 - ICU: family waiting room crowding reported; chaplain requested.
+18:31 - ED: EMS radio requests destination guidance; status uncertain; House Supervisor paged.
+18:32 - Facilities: elevator status update pending; technician en route.
+18:33 - Lab: O-negative inventory monitored; threshold alert remains active.
+18:34 - Pharmacy: Pyxis offline alert persists; manual override process initiated.
+18:35 - Nursing Admin: rapid response team availability confirmed; multiple calls pending.
+18:37 - PACU: capacity report noted as high; elective recovery patients still present.
+18:38 - OR: elective case cancellation discussion logged; no cancellation order posted.
+18:39 - IT: EMR latency continues; intermittent charting delays reported.
+18:40 - ED: security requested for combative visitor; de-escalation attempted.
+18:41 - Transport: stretcher turnaround time increased; bottleneck identified at elevator.
+18:43 - Facilities: generator load trending upward; stable frequency.
+18:44 - ICU: staffing ratio constraint reiterated; charge nurse covering clinical assignment.
+18:46 - ED: stroke team activation confirmed; bed placement unavailable.
+18:47 - ED: temporary holding area established near hallway B due to bay constraints.
+18:48 - Risk Management: voicemail left for on-call; no callback time recorded.
+18:49 - IT: network jitter continues; monitoring intensified.
+18:50 - Lab: hemolysis redraw requests increased; staffing thin.
+18:51 - Security: badge access errors at ED side door; manual entry used.
+18:52 - EVS: delayed cleanup request in ED hallway; spill kit used by nursing.
+18:53 - Facilities: water leak alarm false positive; cleared.
+18:54 - PACU: call-team contact list verified; activation not authorized at this time.
+18:57 - ED: additional IV poles requested; supply chain short.
+18:59 - ICU: admission request deferred; staffing constraint unchanged.
+19:02 - Facilities: utility feed remains unstable; generator remains engaged.
+19:03 - IT: EMR interface lag warning persists; no outage declared.
+19:04 - Transport: non-urgent transfers paused to prioritize ED holds; limited effect.
+19:06 - Security: ED lobby disturbance resolved; continued presence requested.
+19:07 - Lab: turnaround times increasing; critical results still prioritized.
+19:08 - Radiology: CT backlog continues; patients queued for Scanner 1.
+19:09 - Staffing Office: additional call attempts initiated; no confirmations.
+19:11 - ED: trauma bay readiness check negative; both bays occupied.
+19:12 - ICU: Med/Surg float proposal discussed; competency mismatch documented.
+19:13 - Pharmacy: central line kit shortage reported; supply chain contacted.
+19:14 - Facilities: elevator B remains out of service; expected repair time unknown.
+19:16 - ED: hallway monitor alarm volume increased; nursing reports alarm fatigue risk.
+19:18 - IT: email delivery delays noted; mail queue growing.
+19:19 - PACU: overflow readiness discussed; staffing on-call remains available.
+19:21 - ED: EMS updates indicate regional crash incidents increasing due to storm.
+19:22 - Security: ambulance bay door still malfunctioning; workaround in place.
+19:23 - ICU: closed rooms list reiterated: 402, 405, 406, 408.
+19:25 - Transport: ICU transfer attempt delayed; elevator limitation continues.
+19:26 - Facilities: generator fuel level recheck requested; no shortage indicated.
+19:28 - Lab: O-negative conservation measures initiated; clinical teams notified.
+19:30 - ED: holds remain high; charge nurse requests leadership presence in ED.
+19:31 - IT: workstation freeze reports in ED; reboot guidance issued.
+19:33 - Radiology: trauma imaging workflow reviewed; capacity limited.
+19:34 - EVS: terminal clean backlog hospital-wide; priority list requested.
+19:35 - Staffing Office: float pool unchanged; no ICU-competent staff available.
+19:36 - ICU: charge nurse covering direct patient assignment plus charge duties.
+19:37 - Facilities: generator remains stable; utility feed remains variable.
+19:41 - ED: destination guidance request from EMS repeated; divert not active in system.
+19:42 - Risk Management: escalation note added; callback still pending.
+19:43 - PACU: on-call team reconfirmed reachable; awaiting authorization.
+19:44 - OR: elective case cancellation status unchanged; no formal order logged.
+19:46 - IT: EMR latency intermittent; charting delays continue.
+19:48 - Security: access control tightened at ED entrance; visitor screening increased.
+19:49 - Transport: additional stretcher request denied due to shortage.
+19:50 - Lab: blood gas analyzer in heavy use; queue extended.
+19:52 - Pharmacy: Pyxis restored briefly then offline again; manual process continues.
+19:53 - ED: hallway B used for clinical care; privacy concerns documented.
+19:54 - Facilities: elevator technician arrival confirmed.
+19:56 - Radiology: CT Scanner 2 still down; no estimated return.
+19:57 - IT: VOIP phone reboot planned; deferred due to incident.
+19:59 - Staffing Office: call attempt log updated; no arrivals confirmed.
+20:01 - ICU: staffing remains insufficient; admissions unsafe without additional RN.
+20:02 - ED: charge nurse requests divert consideration again; awaiting decision.
+20:04 - Facilities: generator load steady; utility feed instability persists.
+20:06 - PACU: overflow beds physically available; staffing not mobilized.
+20:07 - Risk Management: callback requested again; no response time recorded.
+20:08 - Security: EMS bay congestion worsened; traffic managed manually.
+20:11 - IT: EMR latency persists; no downtime declared.
+20:12 - Transport: elevator B returns to limited service; delays remain.
+20:13 - ED: trauma team standby increased due to regional crash reports.
+20:14 - ICU: Med/Surg redeployment proposal rejected again due to competency.
+20:16 - Pharmacy: additional drip pumps requested; limited supply.
+20:17 - Lab: critical result communication delays noted; staffing thin.
+20:18 - Radiology: portable x-ray prioritized for hallway patients.
+20:19 - EVS: hallway cleanup performed; backlog continues.
+20:20 - Staffing Office: PACU on-call re-contact attempted; pending authorization.
+20:21 - ED: trauma bay occupancy unchanged; holds remain.
+20:22 - Facilities: utility feed still unstable; generator remains active.
+20:23 - IT: mail server queue continues; admin distribution delays possible.
+20:24 - Security: visitor conflict in ED lobby; resolved.
+20:26 - ICU: closed beds still listed in dashboard as available (licensed view).
+20:28 - ED: transfer requests continue; capacity concerns logged.
+20:30 - PACU: on-call readiness confirmed; no activation order posted.
+20:32 - Risk Management: escalation pathway reviewed; leadership contact attempted.
+20:34 - Transport: ICU transfer attempt delayed; priority triage ongoing.
+20:35 - Facilities: elevator service fluctuating; maintenance continues.
+20:37 - ED: EMS radio indicates bus crash confirmed; multi-trauma possible.
+20:38 - Radiology: trauma imaging plan reviewed; capacity limited.
+20:39 - IT: EMR latency intermittent; user complaints continue.
+20:41 - Security: EMS bay prepared for multiple arrivals; staffing tight.
+20:42 - Staffing Office: no ICU-competent float available; unchanged.
+20:43 - ICU: charge nurse preparing to accept unsafe placement if forced.
+20:44 - ED: hallway capacity maxed; overflow discussed.
+20:46 - Facilities: generator stable; utility feed still not reliable.
+20:48 - ED: multi-trauma ETA updated; preparation underway.
+20:49 - ICU: room 402 flagged as closed but physically ready.
+20:51 - ED: trauma arrival workflow initiated; no bay available.
+20:52 - Security: crowd control increased; hallway access restricted.
+20:53 - Transport: attempted relocation of ED hold delayed; elevator congestion.
+20:54 - Risk Management: callback still pending; escalation continues.
+20:56 - Radiology: CT capacity limited; trauma imaging delayed.
+20:58 - IT: network jitter persists; monitoring.
+21:02 - ICU: assignment burden escalated; charge nurse covering patient care.
+21:04 - ED: hold relocation attempted; delays persist.
+21:06 - Staffing Office: call attempt log updated; no arrivals confirmed.
+21:08 - PACU: on-call team awaiting activation decision.
+21:10 - Facilities: generator remains active; power instability continues.
+21:14 - ED: post-arrival care in hallway area continues; safety risk logged.
+21:16 - Security: hallway crowding addressed; restricted access.
+21:18 - IT: email delivery delays persist; leadership messages may lag.
+21:20 - ICU: staffing gap persists; unsafe assignment risk elevated.
+21:22 - Transport: stretcher shortage persists; delays.
+21:24 - Risk Management: escalation in progress.
+21:26 - Radiology: portable imaging prioritization continues.
+21:28 - Facilities: elevator service intermittent; continued delays.
+21:32 - ED: resuscitation response ongoing; hallway constraints.
+21:36 - Security: EMS bay congestion; manual routing.
+21:38 - Staffing Office: PACU activation still pending authorization.
+21:40 - IT: EMR latency intermittent; charting delays.
+21:42 - ICU: closed-bed list unchanged aside from room 402 assignment event.
+21:44 - Facilities: generator stable; monitoring continues.
+21:48 - ED: post-event stabilization; ongoing saturation.
+21:52 - Risk Management: escalation activity logged.
+21:56 - Transport: transfers still delayed.
+22:02 - Facilities: generator remains active; utility feed instability persists.
+
+SOURCE E: Transfer Center and EMS Communication Log (Capacity Governance Artifacts)
+Export label: TransferCenter_Activity_2023-11-14
+Times are 24-hour, EST.
+
+18:55 - Transfer Center: System status check. Auto-Accept flag recorded as ON (default).
+18:58 - Transfer Center: ED reported NEDOCS trending upward; Code Violet threshold risk documented.
+19:02 - Transfer Center: Auto-Accept flag recorded as ON (no change).
+19:05 - Transfer Center: Inbound transfer request logged (Pine Crest ED; STEMI; ICU-level care request). Note: Auto-Accept eligible under normal operations.
+19:08 - Transfer Center: House Supervisor requested Auto-Accept suspension due to Level 3 conditions; status recorded as pending AOC decision.
+19:12 - Transfer Center: House Supervisor relayed AOC directive: Auto-Accept to remain ON; Code Violet activation not authorized at that time.
+19:16 - Transfer Center: EMS destination guidance request logged; ED requested clarification on diversion status; divert recorded as OFF.
+19:20 - Transfer Center: Inbound transfer request logged (Westbrook Community; septic shock; ventilator support). Note: ICU staffed beds unavailable per ICU charge nurse report.
+19:24 - Transfer Center: House Supervisor requested diversion consideration due to inability to safely staff ICU beds.
+19:29 - Transfer Center: AOC directive documented: No diversion; Auto-Accept remains ON; bed placement to use licensed ICU capacity where possible.
+19:40 - Transfer Center: Inbound call from regional EMS dispatch requesting facility status; dispatch informed divert OFF per system.
+19:47 - Transfer Center: ED requested transfer pause due to trauma bay constraints; Auto-Accept remained ON per system.
+20:25 - Transfer Center: Inbound transfer request logged (Lakeside ED; GI bleed; ICU evaluation requested). Note: Auto-Accept eligible under normal operations.
+20:27 - Transfer Center: Bed assignment attempt recorded to ICU Room 405 (licensed bed). Staffing validation recorded as failed by ICU charge nurse.
+20:31 - Transfer Center: Escalation note recorded: staffing constraints overriding licensed bed visibility.
+21:22 - Transfer Center: House Supervisor escalation recorded: request to submit divert request in system.
+21:41 - Transfer Center: Divert request submission acknowledged in divert system.
+
+SOURCE F: Divert Status System Log (EMS Notification Audit Trail)
+Export label: DivertSystem_Audit_2023-11-14
+Times are 24-hour, EST.
+
+18:00 - Divert status: OFF (baseline).
+19:00 - Divert status: OFF (no change).
+20:15 - Divert status: OFF (no change).
+21:36 - Divert status: OFF (no change).
+21:41 - Divert request submitted: ED saturation / Code Violet conditions (requestor role: House Supervisor).
+21:44 - Authorization recorded: CEO authorization documented (Divert approval actor: CEO).
+21:45 - Divert status: ON (effective).
+21:46 - EMS broadcast: Divert ON communicated to regional EMS dispatch.
+22:05 - Divert status: ON (no change).
+
+SOURCE G: Bed Management Dashboard Snapshot (Licensed vs Staffed View)
+Export label: BedBoard_Snapshot_2023-11-14
+Times are 24-hour, EST.
+
+Field definitions
+ - Licensed available: physical bed exists and is not assigned in the system.
+ - Staffed available: licensed available bed with staffing coverage validated for assignment.
+
+17:40 - ICU Licensed available: 4 (Rooms 402, 405, 406, 408). ICU Staffed available: 2.
+18:00 - ICU Licensed available: 4 (Rooms 402, 405, 406, 408). ICU Staffed available: 0. Flag: staffing ratio constraint.
+18:15 - ICU Licensed available: 4 (Rooms 402, 405, 406, 408). ICU Staffed available: 0. Flag: call-outs recorded.
+19:45 - ICU Licensed available: 4 (Rooms 402, 405, 406, 408). ICU Staffed available: 0. Flag: ED holds escalating.
+20:15 - ICU Licensed available: 4 (Rooms 402, 405, 406, 408). ICU Staffed available: 0. Flag: PACU overflow not activated.
+21:00 - ICU Licensed available: 3 (Room 402 assigned). ICU Staffed available: 0. Flag: unsafe assignment risk.
+21:45 - ICU Licensed available: 3. ICU Staffed available: 0. Flag: divert pending.
+
+SOURCE H: Staffing Office Call-Out and Float Pool Snapshot
+Export label: StaffingOffice_Snapshot_2023-11-14
+Times are 24-hour, EST.
+
+17:50 - ICU call-outs recorded: 2 (RN identifiers removed). Reason: storm-related travel/power conditions.
+18:20 - Float pool availability: 0 ICU-competent, 1 Med/Surg available, 0 PACU on-site.
+19:05 - PACU call-team roster status: on-call available; activation requires administrative authorization.
+19:55 - Med/Surg staffing shortfall flagged: 2 vacancies for night shift.
+20:10 - ICU replacement staffing attempts: 3 call attempts logged, no confirmed arrivals.
+21:05 - PACU on-call contacted by Staffing Office: pending authorization flag noted.
+21:35 - Float pool availability: 0 ICU-competent; 1 Med/Surg available.
