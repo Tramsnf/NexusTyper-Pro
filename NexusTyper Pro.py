@@ -936,17 +936,47 @@ class TypingWorker(QObject):
         out = mapping.get(ch, '?')
         pyautogui.typewrite(out, interval=0.002)
 
-    def _dismiss_autocomplete_popup(self):
-        """Best-effort: close editor autocomplete/popups before sending Enter."""
+    _SHIFTED_US_SYMBOLS = {
+        '!': '1',
+        '@': '2',
+        '#': '3',
+        '$': '4',
+        '%': '5',
+        '^': '6',
+        '&': '7',
+        '*': '8',
+        '(': '9',
+        ')': '0',
+        '_': '-',
+        '+': '=',
+        '{': '[',
+        '}': ']',
+        '|': '\\',
+        ':': ';',
+        '"': "'",
+        '<': ',',
+        '>': '.',
+        '?': '/',
+        '~': '`',
+    }
+    _AUTOCOMPLETE_GUARD_CHARS = set("()[]{}.,;:=#\"'")
+
+    def _dismiss_autocomplete_popup(self, strong: bool = True):
+        """Best-effort: close editor autocomplete/popups.
+
+        Use `strong=True` before Enter/newlines; `strong=False` mid-line.
+        """
         if not self.press_esc or self._target_is_browser:
             return
-        # Many editors need a tiny delay after Esc so Enter doesn't accept a suggestion.
-        for _ in range(2):
+        presses = 2 if strong else 1
+        delay = 0.06 if strong else 0.02
+        # Many editors need a tiny delay after Esc so the next key doesn't accept a suggestion.
+        for _ in range(presses):
             try:
                 pyautogui.press('esc')
             except Exception:
                 break
-            self._sleep_interruptible(0.06)
+            self._sleep_interruptible(delay)
 
     def _indent_level_for_list_mode(self, line: str) -> int:
         """Return indentation level (approx, 4 spaces per level) for List Mode."""
@@ -964,6 +994,68 @@ class TypingWorker(QObject):
             return max(0, (tab_count * 4 + space_count) // 4)
         except Exception:
             return 0
+
+    def _release_modifiers_best_effort(self):
+        # Clear any "stuck" modifiers which can cause shifted symbols to mis-type.
+        for key in ("shift", "ctrl", "alt", "command", "cmd", "option"):
+            try:
+                pyautogui.keyUp(key)
+            except Exception:
+                pass
+
+    def _type_shifted_symbol_us(self, ch: str) -> bool:
+        """Type a shifted symbol using a US-keyboard fallback (helps with flaky Shift combos)."""
+        base = self._SHIFTED_US_SYMBOLS.get(ch)
+        if not base:
+            return False
+        try:
+            self._release_modifiers_best_effort()
+            pyautogui.keyDown("shift")
+            self._sleep_interruptible(0.02)
+            pyautogui.typewrite(base, interval=0.0)
+            self._sleep_interruptible(0.01)
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                pyautogui.keyUp("shift")
+            except Exception:
+                pass
+            self._sleep_interruptible(0.005)
+
+    def _maybe_dismiss_autocomplete_before_char(self, ch: str, prev_char: str):
+        if not self.press_esc or self._target_is_browser:
+            return
+        if not ch:
+            return
+        # Tab is especially risky in VS Code (can accept suggestions).
+        if ch == '\t':
+            self._dismiss_autocomplete_popup(strong=False)
+            return
+        # If we're mid-identifier, punctuation can "commit" a suggestion in editors like VS Code.
+        if prev_char and (prev_char.isalnum() or prev_char == '_') and ch in self._AUTOCOMPLETE_GUARD_CHARS:
+            self._dismiss_autocomplete_popup(strong=False)
+
+    def _type_character(self, ch: str) -> bool:
+        """Type a single character with extra guardrails for code editors."""
+        if ch == '\t':
+            try:
+                pyautogui.press("tab")
+                return True
+            except Exception:
+                try:
+                    pyautogui.typewrite('\t', interval=0.0)
+                    return True
+                except Exception:
+                    return False
+        if ch in self._SHIFTED_US_SYMBOLS:
+            return self._type_shifted_symbol_us(ch)
+        try:
+            pyautogui.typewrite(ch, interval=0.0)
+            return True
+        except Exception:
+            return False
 
     def _type_segment(self, segment, overall_start_time, chars_completed, total_chars_overall):
         # Types a segment of text with human-like behavior, preserving code formatting
@@ -996,7 +1088,9 @@ class TypingWorker(QObject):
                     else:
                         self._type_with_ascii_fallback(char)
                 else:
-                    pyautogui.typewrite(char, interval=0.002)
+                    self._maybe_dismiss_autocomplete_before_char(char, prev_char)
+                    if not self._type_character(char):
+                        pyautogui.typewrite(char, interval=0.01)
             
             chars_completed += 1
             self._maybe_emit_progress(overall_start_time, chars_completed, total_chars_overall)
@@ -1053,6 +1147,7 @@ class TypingWorker(QObject):
                 return
             self.initial_window = target
             self._target_is_browser = self._is_browser_title(self.initial_window)
+            self._release_modifiers_best_effort()
             self.update_status.emit(f"Typing locked on: {self.initial_window}")
             if self.auto_detect:
                 self._auto_optimize_for_window(self.initial_window)
@@ -1139,6 +1234,10 @@ class TypingWorker(QObject):
                                         pyautogui.keyUp('shift')
                                     except Exception:
                                         break
+                                try:
+                                    pyautogui.keyUp('shift')
+                                except Exception:
+                                    pass
                                 self._sleep_interruptible(0.03)
                             virtual_level = desired_level
 
