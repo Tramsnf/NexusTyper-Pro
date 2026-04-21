@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QThread, QSettings, QEvent, QUrl, QStringListModel, pyqtSlot, QTimer, QSize
 from PyQt5.QtGui import QKeySequence, QPixmap, QIcon, QTextDocument, QDesktopServices, QFontDatabase, QFontMetrics
 import json
+import html
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -27,6 +28,64 @@ _SMART_BULLET_RE = re.compile(r"^\s*(?:[-*+]|•)\s+")
 _SMART_NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s+")
 _SMART_BLOCKQUOTE_RE = re.compile(r"^\s*>+\s+")
 _SMART_HEADING_RE = re.compile(r"^\s*#{1,6}\s+")
+
+# Characters that commonly leak in when pasting from AI chat UIs, rich editors,
+# PDFs, Google Docs, Word, etc., and either render invisibly or confuse target
+# apps. Stripped/replaced by sanitize_ai_text.
+_AI_INVISIBLE_CHARS = (
+    '​‌‍⁠﻿'    # ZWSP, ZWNJ, ZWJ, WORD JOINER, BOM
+    '‎‏'                       # LRM, RLM (bidi marks)
+    '‪‫‬‭‮'     # LRE, RLE, PDF, LRO, RLO (bidi embedding)
+    '⁦⁧⁨⁩'           # LRI, RLI, FSI, PDI (bidi isolates)
+    '­'                             # SOFT HYPHEN
+)
+_AI_INVISIBLE_TABLE = str.maketrans('', '', _AI_INVISIBLE_CHARS)
+
+_AI_PUNCT_TABLE = str.maketrans({
+    ' ': ' ',   # NO-BREAK SPACE
+    ' ': ' ',   # NARROW NO-BREAK SPACE
+    ' ': ' ',   # FIGURE SPACE
+    ' ': ' ',   # PUNCTUATION SPACE
+    ' ': ' ',   # THIN SPACE
+    ' ': ' ',   # HAIR SPACE
+    ' ': ' ',   # MEDIUM MATHEMATICAL SPACE
+    '　': ' ',   # IDEOGRAPHIC SPACE
+    ' ': '\n',  # LINE SEPARATOR
+    ' ': '\n',  # PARAGRAPH SEPARATOR
+    '“': '"', '”': '"',    # “ ”
+    '‘': "'", '’': "'",    # ‘ ’
+    '‚': ',', '„': ',,',   # ‚ „
+    '′': "'", '″': '"',    # ′ ″ (prime, double prime)
+    '–': '-',                    # – en dash
+    '—': '--',                   # — em dash
+    '…': '...',                  # … ellipsis
+    '−': '-',                    # − minus sign
+    '×': 'x',                    # × multiplication sign (AI/math leakage;
+                                 #   pyautogui can't type U+00D7 and it
+                                 #   corrupts to "." — "x" is what a human
+                                 #   would type for "times")
+    '÷': '/',                    # ÷ division sign (same story)
+})
+
+
+def sanitize_ai_text(text: str) -> str:
+    """Normalize text pasted/typed from AI chats, web pages, PDFs, docs.
+
+    Handles: HTML entities (&amp; → &), zero-width chars, bidi marks, soft
+    hyphens, exotic spaces (NBSP/thin/etc.), smart quotes/dashes/ellipsis,
+    and line-separator chars. Safe to run repeatedly.
+    """
+    if not text:
+        return text
+    # 1. Decode any stray HTML entities ("&amp;" that came across as literal 5 chars)
+    text = html.unescape(text)
+    # 2. Strip invisible / bidi / soft-hyphen chars that confuse target apps
+    text = text.translate(_AI_INVISIBLE_TABLE)
+    # 3. Replace exotic spaces, line separators, and smart punctuation
+    text = text.translate(_AI_PUNCT_TABLE)
+    # 4. Normalize line endings
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    return text
 
 
 def apply_smart_newlines(text: str) -> str:
@@ -450,9 +509,9 @@ class PasteCleaningTextEdit(QTextEdit):
             else:
                 return super().insertFromMimeData(source)
 
-            # Normalize common whitespace and line endings
-            text = text.replace('\r\n', '\n').replace('\r', '\n')
-            text = text.replace('\u00A0', ' ').replace('\u202F', ' ')
+            # Full AI-paste sanitize: entities, invisibles, exotic spaces,
+            # smart punctuation, and line endings.
+            text = sanitize_ai_text(text)
             # Collapse 3+ blank lines to 2 to avoid huge gaps
             text = re.sub(r'\n{3,}', '\n\n', text)
             self.insertPlainText(text)
@@ -1004,25 +1063,38 @@ class TypingWorker(QObject):
                 pass
 
     def _type_shifted_symbol_us(self, ch: str) -> bool:
-        """Type a shifted symbol using a US-keyboard fallback (helps with flaky Shift combos)."""
+        """Type a shifted symbol via explicit public keyDown/keyUp calls so
+        pyautogui.PAUSE fires between each event. pyautogui.hotkey() skips
+        PAUSE between its inner keyDowns, which races shift and produces
+        ")"→"0", "@"→"2", etc. at high speed."""
         base = self._SHIFTED_US_SYMBOLS.get(ch)
         if not base:
             return False
+        return self._press_with_shift(base)
+
+    def _type_shifted_letter(self, ch: str) -> bool:
+        """Uppercase A-Z via explicit keyDown/keyUp. pyautogui.typewrite()
+        internally fires shift-down/key-down/key-up/shift-up with no PAUSE
+        between events, which races at high speed and produces "MAGI"→"mAGI"
+        or shift-stuck corruption like "Google"→"GOOGLE"."""
+        return self._press_with_shift(ch.lower())
+
+    def _press_with_shift(self, base: str) -> bool:
+        """Public keyDown/keyUp so pyautogui.PAUSE applies between each step.
+        No manual sleeps, no _release_modifiers_best_effort — those caused
+        state desync with macOS Quartz flag tracking."""
         try:
-            self._release_modifiers_best_effort()
             pyautogui.keyDown("shift")
-            self._sleep_interruptible(0.02)
-            pyautogui.typewrite(base, interval=0.0)
-            self._sleep_interruptible(0.01)
+            pyautogui.keyDown(base)
+            pyautogui.keyUp(base)
+            pyautogui.keyUp("shift")
             return True
         except Exception:
-            return False
-        finally:
             try:
                 pyautogui.keyUp("shift")
             except Exception:
                 pass
-            self._sleep_interruptible(0.005)
+            return False
 
     def _maybe_dismiss_autocomplete_before_char(self, ch: str, prev_char: str):
         if not self.press_esc or self._target_is_browser:
@@ -1051,6 +1123,10 @@ class TypingWorker(QObject):
                     return False
         if ch in self._SHIFTED_US_SYMBOLS:
             return self._type_shifted_symbol_us(ch)
+        # Route uppercase A-Z through explicit shift handling too; typewrite
+        # races shift internally the same way hotkey does.
+        if len(ch) == 1 and ch.isascii() and ch.isalpha() and ch.isupper():
+            return self._type_shifted_letter(ch)
         try:
             pyautogui.typewrite(ch, interval=0.0)
             return True
@@ -1067,7 +1143,13 @@ class TypingWorker(QObject):
             if not self._wait_until_ready():
                 return chars_completed, False
             
-            if self.add_mistakes and random.random() < self.mistake_chance:
+            # At high speeds the backspace-and-retype sequence can race the
+            # next keystroke and corrupt output, so suppress artificial
+            # mistakes when the target WPM is fast. The checkbox still governs
+            # slower, human-like ranges.
+            if (self.add_mistakes
+                    and self.max_wpm < 220
+                    and random.random() < self.mistake_chance):
                 if char.lower() in KEY_ADJACENCY:
                     pyautogui.typewrite(random.choice(KEY_ADJACENCY[char.lower()]))
                     self._sleep_interruptible(random.uniform(0.1, 0.25))
@@ -1116,16 +1198,18 @@ class TypingWorker(QObject):
     @pyqtSlot()
     def run(self):
         try:
-            pyautogui.PAUSE = 0
+            # A small global cushion between every pyautogui call. PAUSE=0 races
+            # shift-up vs next-char-down on macOS, causing stuck shift state
+            # ("Google"→"GOOGLE", ")"→"0"). 5ms is invisible to humans but
+            # gives Quartz time to process modifier transitions in order.
+            pyautogui.PAUSE = 0.005
             if self.enable_mouse_jitter:
                 threading.Thread(target=self._mouse_jitter_thread, daemon=True).start()
 
             text_content = self.text_to_type or ""
-            # Normalize some curly quotes/dashes to plain ASCII
-            text_content = (text_content
-                            .replace('“', '"').replace('”', '"')
-                            .replace('‘', "'").replace('’', "'")
-                            .replace('—', '--').replace('…', '...'))
+            # Strip HTML entities, invisible/bidi chars, exotic spaces, and
+            # normalize smart punctuation before a single keystroke goes out.
+            text_content = sanitize_ai_text(text_content)
 
             if not text_content:
                 self.finished.emit()
@@ -1950,6 +2034,12 @@ class AutoTyperApp(QWidget):
         clean_action = QAction('Clean Whitespace', self)
         clean_action.triggered.connect(self.clean_whitespace)
         format_menu.addAction(clean_action)
+        decode_entities_action = QAction('Decode HTML Entities', self)
+        decode_entities_action.triggered.connect(self.decode_html_entities)
+        format_menu.addAction(decode_entities_action)
+        fix_ai_action = QAction('Fix AI Paste Artifacts', self)
+        fix_ai_action.triggered.connect(self.fix_ai_paste_artifacts)
+        format_menu.addAction(fix_ai_action)
         format_menu.addSeparator()
         upper_action = QAction('UPPERCASE', self)
         upper_action.triggered.connect(self.to_uppercase)
@@ -2218,6 +2308,8 @@ class AutoTyperApp(QWidget):
         self.format_tool_button.setPopupMode(QToolButton.InstantPopup)
         format_menu_popup = QMenu(self)
         format_menu_popup.addAction("Clean Whitespace", self.clean_whitespace)
+        format_menu_popup.addAction("Decode HTML Entities", self.decode_html_entities)
+        format_menu_popup.addAction("Fix AI Paste Artifacts", self.fix_ai_paste_artifacts)
         format_menu_popup.addSeparator()
         format_menu_popup.addAction("UPPERCASE", self.to_uppercase)
         format_menu_popup.addAction("lowercase", self.to_lowercase)
@@ -2250,7 +2342,7 @@ class AutoTyperApp(QWidget):
         except Exception:
             clean_pix = QStyle.SP_DialogResetButton
         self.clean_button.setIcon(self.style().standardIcon(clean_pix))
-        self.clean_button.setToolTip("Clean whitespace")
+        self.clean_button.setToolTip("Clean whitespace and decode HTML entities (&amp; → &)")
         self.clean_button.setText("Clean")
         self.clean_button.clicked.connect(self.clean_whitespace)
         tools_layout.addWidget(self.clean_button)
@@ -3947,8 +4039,9 @@ class AutoTyperApp(QWidget):
         text = self.get_input_text()
         if text is None:
             return
-        # Normalize line endings first.
-        text = str(text).replace('\r\n', '\n').replace('\r', '\n')
+        # Run the full AI-paste sanitizer first so &amp;, zero-width chars,
+        # smart quotes, and exotic spaces all get fixed alongside whitespace.
+        text = sanitize_ai_text(str(text))
         # Trim trailing spaces, preserving line structure (including trailing blank lines).
         lines = [line.rstrip() for line in text.split('\n')]
         cleaned = '\n'.join(lines)
@@ -3956,6 +4049,18 @@ class AutoTyperApp(QWidget):
         if self.input_mode_name() == "Plain Text":
             cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
         self.set_input_text(cleaned)
+
+    def decode_html_entities(self):
+        text = self.get_input_text()
+        if text is None:
+            return
+        self.set_input_text(html.unescape(str(text)))
+
+    def fix_ai_paste_artifacts(self):
+        text = self.get_input_text()
+        if text is None:
+            return
+        self.set_input_text(sanitize_ai_text(str(text)))
 
     def to_uppercase(self):
         self.set_input_text(self.get_input_text().upper())
