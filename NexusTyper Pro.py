@@ -14,10 +14,18 @@ from PyQt5.QtWidgets import (
     QFileDialog, QAction, QMenuBar, QMenu, QDialog, QLineEdit,
     QDialogButtonBox, QComboBox, QInputDialog, QTabWidget, QKeySequenceEdit,
     QFormLayout, QGroupBox, QRadioButton, QPlainTextEdit, QCompleter,
-    QSplitter, QScrollArea, QToolButton, QStyle, QGridLayout, QFrame, QSizePolicy
+    QSplitter, QSplitterHandle, QScrollArea, QToolButton, QStyle, QGridLayout,
+    QFrame, QSizePolicy
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QObject, QThread, QSettings, QEvent, QUrl, QStringListModel, pyqtSlot, QTimer, QSize
-from PyQt5.QtGui import QKeySequence, QPixmap, QIcon, QTextDocument, QDesktopServices, QFontDatabase, QFontMetrics
+from PyQt5.QtCore import (
+    Qt, pyqtSignal, QObject, QThread, QSettings, QEvent, QUrl, QStringListModel,
+    pyqtSlot, QTimer, QSize, QPoint, QRect, QPropertyAnimation, QEasingCurve,
+    pyqtProperty, QVariantAnimation
+)
+from PyQt5.QtGui import (
+    QKeySequence, QPixmap, QIcon, QTextDocument, QDesktopServices,
+    QFontDatabase, QFontMetrics, QPainter, QColor, QPen, QPainterPath
+)
 import json
 import html
 import logging
@@ -220,28 +228,623 @@ KEY_ADJACENCY = {
 }
 
 # --- App Styling ---
+# Polished theme stylesheets. Both themes share the same structure; only colors differ.
+# Accent: cyan (primary), green (start), red (stop), amber (pause/warning).
+
 DARK_STYLESHEET = """
-QWidget { background-color: #2b2b2b; color: #f0f0f0; border: none; }
-QGroupBox { border: 1px solid #444; border-radius: 4px; margin-top: 10px; }
-QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 3px; }
-QTabWidget::pane { border-top: 2px solid #3c3c3c; }
-QTabBar::tab { background: #2b2b2b; border: 1px solid #444; border-bottom-color: #3c3c3c;
-border-top-left-radius: 4px; border-top-right-radius: 4px; min-width: 8ex; padding: 5px; }
-QTabBar::tab:selected, QTabBar::tab:hover { background: #3c3c3c; }
-QMenuBar, QMenu { background-color: #3c3c3c; color: #f0f0f0; }
-QMenu::item:selected { background-color: #555; }
-QPushButton { background-color: #555; border: 1px solid #666; padding: 5px; border-radius: 3px; }
-QPushButton:hover { background-color: #666; }
-QPushButton:pressed { background-color: #777; }
-QPushButton:disabled { background-color: #444; color: #888; }
-QTextEdit, QLineEdit, QSpinBox, QComboBox, QKeySequenceEdit { background-color: #3c3c3c; border: 1px solid #555; padding: 3px; border-radius: 3px; }
-QPlainTextEdit { background-color: #3c3c3c; border: 1px solid #555; padding: 3px; border-radius: 3px; }
-QComboBox QAbstractItemView { background-color: #3c3c3c; border: 1px solid #555; selection-background-color: #555; }
-QCheckBox::indicator, QRadioButton::indicator { width: 13px; height: 13px; }
-QSlider::groove:horizontal { border: 1px solid #444; height: 8px; background: #3c3c3c; margin: 2px 0; border-radius: 4px; }
-QSlider::handle:horizontal { background: #888; border: 1px solid #999; width: 18px; margin: -5px 0; border-radius: 9px; }
-QProgressBar { border: 1px solid #555; border-radius: 5px; text-align: center; color: white; }
-QProgressBar::chunk { background-color: #05B8CC; border-radius: 4px; }
+QWidget {
+    background-color: #0F172A;
+    color: #E2E8F0;
+    selection-background-color: #06B6D4;
+    selection-color: #0F172A;
+}
+QMainWindow, QDialog, QScrollArea { background-color: #0F172A; }
+
+QMenuBar {
+    background-color: #0F172A;
+    color: #CBD5E1;
+    border-bottom: 1px solid #1E293B;
+    padding: 2px 4px;
+}
+QMenuBar::item { padding: 6px 10px; background: transparent; border-radius: 4px; }
+QMenuBar::item:selected { background: #1E293B; color: #F1F5F9; }
+QMenu {
+    background-color: #1E293B;
+    color: #E2E8F0;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 4px;
+}
+QMenu::item { padding: 6px 22px 6px 14px; border-radius: 4px; }
+QMenu::item:selected { background-color: #334155; color: #F8FAFC; }
+QMenu::separator { height: 1px; background: #334155; margin: 4px 8px; }
+
+QGroupBox {
+    background-color: transparent;
+    border: 1px solid #1E293B;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 14px 12px 10px 12px;
+    font-weight: 600;
+    color: #CBD5E1;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    padding: 0 6px;
+    color: #94A3B8;
+    background-color: #0F172A;
+}
+
+QTabWidget::pane {
+    background: #0F172A;
+    border: 1px solid #1E293B;
+    border-radius: 8px;
+    top: -1px;
+}
+QTabBar { qproperty-drawBase: 0; background: transparent; }
+QTabBar::tab {
+    background: transparent;
+    color: #94A3B8;
+    padding: 8px 16px;
+    margin-right: 4px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    min-width: 80px;
+}
+QTabBar::tab:hover { color: #CBD5E1; }
+QTabBar::tab:selected {
+    color: #F8FAFC;
+    border-bottom: 2px solid #06B6D4;
+}
+
+QPushButton {
+    background-color: #1E293B;
+    color: #E2E8F0;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 7px 14px;
+    min-height: 22px;
+}
+QPushButton:hover { background-color: #334155; border-color: #475569; }
+QPushButton:pressed { background-color: #0B1220; }
+QPushButton:focus { border-color: #06B6D4; outline: none; }
+QPushButton:disabled { background-color: #1E293B; color: #475569; border-color: #1E293B; }
+
+QPushButton#startButton {
+    background-color: #16A34A;
+    color: #F0FDF4;
+    border: 1px solid #15803D;
+    font-weight: 600;
+}
+QPushButton#startButton:hover { background-color: #15803D; border-color: #166534; }
+QPushButton#startButton:pressed { background-color: #166534; }
+QPushButton#startButton:disabled { background-color: #1E293B; color: #475569; border-color: #1E293B; }
+
+QPushButton#pauseButton {
+    background-color: #1E293B;
+    color: #CBD5E1;
+    border: 1px solid #334155;
+    font-weight: 600;
+}
+QPushButton#pauseButton:hover {
+    background-color: #2A3445;
+    color: #FDE68A;
+    border-color: #D97706;
+}
+QPushButton#pauseButton:disabled { background-color: #1E293B; color: #475569; border-color: #1E293B; }
+
+QPushButton#stopButton {
+    background-color: #1E293B;
+    color: #CBD5E1;
+    border: 1px solid #334155;
+    font-weight: 600;
+}
+QPushButton#stopButton:hover {
+    background-color: #DC2626;
+    color: #FEF2F2;
+    border-color: #B91C1C;
+}
+QPushButton#stopButton:pressed { background-color: #991B1B; color: #FFFFFF; }
+QPushButton#stopButton:disabled { background-color: #1E293B; color: #475569; border-color: #1E293B; }
+
+QToolButton {
+    background-color: transparent;
+    color: #CBD5E1;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+QToolButton:hover { background-color: #1E293B; border-color: #334155; }
+QToolButton:pressed { background-color: #0B1220; }
+QToolButton::menu-indicator { image: none; width: 0; }
+
+QLineEdit, QSpinBox, QComboBox, QKeySequenceEdit, QTextEdit, QPlainTextEdit {
+    background-color: #0B1220;
+    color: #E2E8F0;
+    border: 1px solid #1E293B;
+    border-radius: 6px;
+    padding: 6px 8px;
+    selection-background-color: #06B6D4;
+    selection-color: #0F172A;
+}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QKeySequenceEdit:focus,
+QTextEdit:focus, QPlainTextEdit:focus { border-color: #06B6D4; }
+QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled, QTextEdit:disabled, QPlainTextEdit:disabled {
+    color: #475569; background-color: #0B1220;
+}
+
+QSpinBox::up-button, QSpinBox::down-button {
+    background-color: #1E293B;
+    border: none;
+    width: 16px;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #334155; }
+
+QComboBox::drop-down { width: 22px; border: none; background: transparent; }
+QComboBox QAbstractItemView {
+    background-color: #1E293B;
+    color: #E2E8F0;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    selection-background-color: #334155;
+    padding: 4px;
+    outline: 0;
+}
+
+QCheckBox, QRadioButton { spacing: 8px; color: #CBD5E1; padding: 2px; background: transparent; }
+QCheckBox::indicator, QRadioButton::indicator { width: 16px; height: 16px; }
+QCheckBox::indicator {
+    border: 1px solid #334155;
+    border-radius: 4px;
+    background: #0B1220;
+}
+QCheckBox::indicator:hover { border-color: #06B6D4; }
+QCheckBox::indicator:checked { background-color: #06B6D4; border-color: #06B6D4; }
+QRadioButton::indicator {
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #0B1220;
+}
+QRadioButton::indicator:hover { border-color: #06B6D4; }
+QRadioButton::indicator:checked { background-color: #0B1220; border: 5px solid #06B6D4; }
+
+QSlider::groove:horizontal {
+    border: none;
+    height: 4px;
+    background: #1E293B;
+    border-radius: 2px;
+}
+QSlider::sub-page:horizontal { background: #06B6D4; border-radius: 2px; }
+QSlider::handle:horizontal {
+    background: #F8FAFC;
+    border: 1px solid #94A3B8;
+    width: 16px;
+    height: 16px;
+    margin: -7px 0;
+    border-radius: 8px;
+}
+QSlider::handle:horizontal:hover { border-color: #06B6D4; }
+
+QProgressBar {
+    background-color: #1E293B;
+    border: 1px solid #1E293B;
+    border-radius: 6px;
+    text-align: center;
+    color: #E2E8F0;
+    min-height: 18px;
+}
+QProgressBar::chunk { background-color: #06B6D4; border-radius: 5px; }
+
+QSplitter { background: #0F172A; }
+QSplitter::handle:horizontal { background: transparent; border: none; }
+QSplitter::handle:horizontal:hover { background: transparent; }
+QSplitter::handle:horizontal:pressed { background: transparent; }
+
+QScrollBar:vertical { background: transparent; width: 8px; margin: 4px 2px 4px 2px; }
+QScrollBar::handle:vertical { background: rgba(71, 85, 105, 0.55); border-radius: 2px; min-height: 24px; }
+QScrollBar::handle:vertical:hover { background: rgba(148, 163, 184, 0.85); }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; background: none; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+QScrollBar:horizontal { background: transparent; height: 8px; margin: 2px 4px 2px 4px; }
+QScrollBar::handle:horizontal { background: rgba(71, 85, 105, 0.55); border-radius: 2px; min-width: 24px; }
+QScrollBar::handle:horizontal:hover { background: rgba(148, 163, 184, 0.85); }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; background: none; }
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
+
+QToolTip {
+    background-color: #1E293B;
+    color: #E2E8F0;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+
+QLabel#statusBadge { border-radius: 6px; }
+QFrame#masthead { background-color: #0B1220; border: none; }
+QFrame#mastheadDivider { background: #1E293B; border: none; }
+QLabel#wordmark {
+    color: #F1F5F9;
+    font-size: 13pt;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+}
+QLabel#wordmarkVersion { color: #475569; font-size: 9pt; padding-left: 4px; }
+QLabel#personaLabel {
+    color: #64748B;
+    font-size: 9pt;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}
+QComboBox#personaPill {
+    background-color: #1E293B;
+    color: #E2E8F0;
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 4px 12px;
+    font-weight: 500;
+}
+QComboBox#personaPill:hover { border-color: #06B6D4; }
+QLabel#hotkeyHint { color: #475569; font-size: 9pt; }
+QFrame#runDivider { background: #1E293B; border: none; }
+QFrame#metricsStrip {
+    background-color: #0B1220;
+    border: 1px solid #1E293B;
+    border-radius: 8px;
+}
+QLabel#metricLabel {
+    color: #64748B;
+    font-size: 9pt;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+}
+QLabel#metricValue {
+    color: #F1F5F9;
+    font-weight: 600;
+    font-size: 11pt;
+}
+QFrame#metricSep { color: #1E293B; }
+QLabel#sectionHeader {
+    color: #94A3B8;
+    font-size: 9pt;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    padding: 0 0 2px 0;
+}
+QFrame#sectionRule { background: #1E293B; border: none; }
+QLabel#fieldLabel { color: #94A3B8; font-size: 9pt; }
+QLabel#scaleLabel { color: #475569; font-size: 8pt; }
+QLabel#valueChip {
+    color: #F1F5F9;
+    background: #1E293B;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 2px 8px;
+    font-weight: 600;
+    font-size: 9pt;
+}
+QToolButton#previewToggle {
+    background: transparent;
+    color: #94A3B8;
+    border: none;
+    padding: 6px 4px;
+    text-align: left;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+}
+QToolButton#previewToggle:hover { color: #06B6D4; }
+QFrame#previewPanel { background: transparent; border: none; }
+QLabel#modeNote { color: #94A3B8; font-size: 9pt; }
+QLabel { background: transparent; }
+"""
+
+LIGHT_STYLESHEET = """
+QWidget {
+    background-color: #F8FAFC;
+    color: #0F172A;
+    selection-background-color: #06B6D4;
+    selection-color: #FFFFFF;
+}
+QMainWindow, QDialog, QScrollArea { background-color: #F8FAFC; }
+
+QMenuBar {
+    background-color: #FFFFFF;
+    color: #334155;
+    border-bottom: 1px solid #E2E8F0;
+    padding: 2px 4px;
+}
+QMenuBar::item { padding: 6px 10px; background: transparent; border-radius: 4px; }
+QMenuBar::item:selected { background: #F1F5F9; color: #0F172A; }
+QMenu {
+    background-color: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #E2E8F0;
+    border-radius: 6px;
+    padding: 4px;
+}
+QMenu::item { padding: 6px 22px 6px 14px; border-radius: 4px; }
+QMenu::item:selected { background-color: #F1F5F9; color: #0F172A; }
+QMenu::separator { height: 1px; background: #E2E8F0; margin: 4px 8px; }
+
+QGroupBox {
+    background-color: transparent;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 14px 12px 10px 12px;
+    font-weight: 600;
+    color: #334155;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    padding: 0 6px;
+    color: #64748B;
+    background-color: #F8FAFC;
+}
+
+QTabWidget::pane {
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    top: -1px;
+}
+QTabBar { qproperty-drawBase: 0; background: transparent; }
+QTabBar::tab {
+    background: transparent;
+    color: #64748B;
+    padding: 8px 16px;
+    margin-right: 4px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    min-width: 80px;
+}
+QTabBar::tab:hover { color: #334155; }
+QTabBar::tab:selected {
+    color: #0F172A;
+    border-bottom: 2px solid #0891B2;
+}
+
+QPushButton {
+    background-color: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 6px;
+    padding: 7px 14px;
+    min-height: 22px;
+}
+QPushButton:hover { background-color: #F1F5F9; border-color: #94A3B8; }
+QPushButton:pressed { background-color: #E2E8F0; }
+QPushButton:focus { border-color: #06B6D4; outline: none; }
+QPushButton:disabled { background-color: #F1F5F9; color: #CBD5E1; border-color: #E2E8F0; }
+
+QPushButton#startButton {
+    background-color: #16A34A;
+    color: #FFFFFF;
+    border: 1px solid #15803D;
+    font-weight: 600;
+}
+QPushButton#startButton:hover { background-color: #15803D; border-color: #166534; }
+QPushButton#startButton:pressed { background-color: #166534; }
+QPushButton#startButton:disabled { background-color: #F1F5F9; color: #CBD5E1; border-color: #E2E8F0; }
+
+QPushButton#pauseButton {
+    background-color: #FFFFFF;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    font-weight: 600;
+}
+QPushButton#pauseButton:hover {
+    background-color: #FEF3C7;
+    color: #92400E;
+    border-color: #D97706;
+}
+QPushButton#pauseButton:disabled { background-color: #F1F5F9; color: #CBD5E1; border-color: #E2E8F0; }
+
+QPushButton#stopButton {
+    background-color: #FFFFFF;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    font-weight: 600;
+}
+QPushButton#stopButton:hover {
+    background-color: #DC2626;
+    color: #FFFFFF;
+    border-color: #B91C1C;
+}
+QPushButton#stopButton:pressed { background-color: #991B1B; color: #FFFFFF; }
+QPushButton#stopButton:disabled { background-color: #F1F5F9; color: #CBD5E1; border-color: #E2E8F0; }
+
+QToolButton {
+    background-color: transparent;
+    color: #334155;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+QToolButton:hover { background-color: #F1F5F9; border-color: #E2E8F0; }
+QToolButton:pressed { background-color: #E2E8F0; }
+QToolButton::menu-indicator { image: none; width: 0; }
+
+QLineEdit, QSpinBox, QComboBox, QKeySequenceEdit, QTextEdit, QPlainTextEdit {
+    background-color: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 6px;
+    padding: 6px 8px;
+    selection-background-color: #06B6D4;
+    selection-color: #FFFFFF;
+}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QKeySequenceEdit:focus,
+QTextEdit:focus, QPlainTextEdit:focus { border-color: #06B6D4; }
+QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled, QTextEdit:disabled, QPlainTextEdit:disabled {
+    color: #94A3B8; background-color: #F1F5F9;
+}
+
+QSpinBox::up-button, QSpinBox::down-button {
+    background-color: #F1F5F9;
+    border: none;
+    width: 16px;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #E2E8F0; }
+
+QComboBox::drop-down { width: 22px; border: none; background: transparent; }
+QComboBox QAbstractItemView {
+    background-color: #FFFFFF;
+    color: #0F172A;
+    border: 1px solid #E2E8F0;
+    border-radius: 6px;
+    selection-background-color: #F1F5F9;
+    padding: 4px;
+    outline: 0;
+}
+
+QCheckBox, QRadioButton { spacing: 8px; color: #334155; padding: 2px; background: transparent; }
+QCheckBox::indicator, QRadioButton::indicator { width: 16px; height: 16px; }
+QCheckBox::indicator {
+    border: 1px solid #CBD5E1;
+    border-radius: 4px;
+    background: #FFFFFF;
+}
+QCheckBox::indicator:hover { border-color: #06B6D4; }
+QCheckBox::indicator:checked { background-color: #06B6D4; border-color: #06B6D4; }
+QRadioButton::indicator {
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    background: #FFFFFF;
+}
+QRadioButton::indicator:hover { border-color: #06B6D4; }
+QRadioButton::indicator:checked { background-color: #FFFFFF; border: 5px solid #06B6D4; }
+
+QSlider::groove:horizontal {
+    border: none;
+    height: 4px;
+    background: #E2E8F0;
+    border-radius: 2px;
+}
+QSlider::sub-page:horizontal { background: #06B6D4; border-radius: 2px; }
+QSlider::handle:horizontal {
+    background: #FFFFFF;
+    border: 1px solid #94A3B8;
+    width: 16px;
+    height: 16px;
+    margin: -7px 0;
+    border-radius: 8px;
+}
+QSlider::handle:horizontal:hover { border-color: #06B6D4; }
+
+QProgressBar {
+    background-color: #E2E8F0;
+    border: 1px solid #E2E8F0;
+    border-radius: 6px;
+    text-align: center;
+    color: #0F172A;
+    min-height: 18px;
+}
+QProgressBar::chunk { background-color: #06B6D4; border-radius: 5px; }
+
+QSplitter { background: #F8FAFC; }
+QSplitter::handle:horizontal { background: transparent; border: none; }
+QSplitter::handle:horizontal:hover { background: transparent; }
+QSplitter::handle:horizontal:pressed { background: transparent; }
+
+QScrollBar:vertical { background: transparent; width: 8px; margin: 4px 2px 4px 2px; }
+QScrollBar::handle:vertical { background: rgba(148, 163, 184, 0.45); border-radius: 2px; min-height: 24px; }
+QScrollBar::handle:vertical:hover { background: rgba(100, 116, 139, 0.85); }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; background: none; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+QScrollBar:horizontal { background: transparent; height: 8px; margin: 2px 4px 2px 4px; }
+QScrollBar::handle:horizontal { background: rgba(148, 163, 184, 0.45); border-radius: 2px; min-width: 24px; }
+QScrollBar::handle:horizontal:hover { background: rgba(100, 116, 139, 0.85); }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; background: none; }
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
+
+QToolTip {
+    background-color: #0F172A;
+    color: #F8FAFC;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+
+QLabel#statusBadge { border-radius: 6px; }
+QFrame#masthead { background-color: #FFFFFF; border: none; }
+QFrame#mastheadDivider { background: #E2E8F0; border: none; }
+QLabel#wordmark {
+    color: #0F172A;
+    font-size: 13pt;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+}
+QLabel#wordmarkVersion { color: #94A3B8; font-size: 9pt; padding-left: 4px; }
+QLabel#personaLabel {
+    color: #94A3B8;
+    font-size: 9pt;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}
+QComboBox#personaPill {
+    background-color: #F1F5F9;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    border-radius: 14px;
+    padding: 4px 12px;
+    font-weight: 500;
+}
+QComboBox#personaPill:hover { border-color: #06B6D4; }
+QLabel#hotkeyHint { color: #94A3B8; font-size: 9pt; }
+QFrame#runDivider { background: #E2E8F0; border: none; }
+QFrame#metricsStrip {
+    background-color: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+}
+QLabel#metricLabel {
+    color: #94A3B8;
+    font-size: 9pt;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+}
+QLabel#metricValue {
+    color: #0F172A;
+    font-weight: 600;
+    font-size: 11pt;
+}
+QFrame#metricSep { color: #E2E8F0; }
+QLabel#sectionHeader {
+    color: #475569;
+    font-size: 9pt;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    padding: 0 0 2px 0;
+}
+QFrame#sectionRule { background: #E2E8F0; border: none; }
+QLabel#fieldLabel { color: #64748B; font-size: 9pt; }
+QLabel#scaleLabel { color: #94A3B8; font-size: 8pt; }
+QLabel#valueChip {
+    color: #0F172A;
+    background: #F1F5F9;
+    border: 1px solid #CBD5E1;
+    border-radius: 10px;
+    padding: 2px 8px;
+    font-weight: 600;
+    font-size: 9pt;
+}
+QToolButton#previewToggle {
+    background: transparent;
+    color: #64748B;
+    border: none;
+    padding: 6px 4px;
+    text-align: left;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+}
+QToolButton#previewToggle:hover { color: #0891B2; }
+QFrame#previewPanel { background: transparent; border: none; }
+QLabel#modeNote { color: #64748B; font-size: 9pt; }
+QLabel { background: transparent; }
 """
 
 # --- Logging Setup ---
@@ -1792,6 +2395,199 @@ class CodeEditor(QPlainTextEdit):
     # (Removed erroneous TypingWorker methods incorrectly placed here.)
 
 
+# Lucide-style icon paths (24x24 viewBox). Stroke 2, round caps/joins.
+# Render with `make_lucide_icon(name, color, size)` to get a tinted QIcon.
+LUCIDE_PATHS = {
+    # folder-open
+    "open": "M6 14l1.5-2.9A2 2 0 0 1 9.3 10H21l-2.5 6.1A2 2 0 0 1 16.7 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.7 1l.8 1a2 2 0 0 0 1.7 1H18a2 2 0 0 1 2 2v2",
+    # save (floppy)
+    "save": "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8 M7 3v5h8",
+    # wand-sparkles (format)
+    "format": "M15 4V2 M15 16v-2 M8 9h2 M20 9h2 M17.8 11.8 19 13 M15 9h0 M17.8 6.2 19 5 M3 21l9-9 M12.2 6.2 11 5",
+    # code-2 (macros / code)
+    "macros": "m18 16 4-4-4-4 M6 8l-4 4 4 4 M14.5 4l-5 16",
+    # eraser (clean)
+    "clean": "m7 21-4.3-4.3a1 1 0 0 1 0-1.4l9.6-9.6a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L13 21 M22 21H7 M5 11l9 9",
+    # x (clear / trash-ish)
+    "clear": "M18 6 6 18 M6 6l12 12",
+    # play (start)
+    "play": "M6 3v18l15-9z",
+    # pause (two bars)
+    "pause": "M14 4h4v16h-4z M6 4h4v16H6z",
+    # square (stop)
+    "stop": "M5 5h14v14H5z",
+    # info
+    "info": "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z M12 8h0 M11 12h1v4h1",
+    # settings
+    "settings": "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
+}
+
+
+def make_lucide_icon(name, color="#94A3B8", size=20, stroke_width=1.8):
+    """Render a Lucide-style icon to a QIcon, tinted to ``color``.
+
+    Uses QSvgRenderer so SVG arc/bezier commands (which Lucide relies on)
+    render correctly.
+    """
+    path_data = LUCIDE_PATHS.get(name)
+    if not path_data:
+        return QIcon()
+    filled = name in ("play", "stop", "pause")
+    if filled:
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+            f'<path d="{path_data}" fill="{color}" stroke="none"/></svg>'
+        )
+    else:
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+            f'<path d="{path_data}" fill="none" stroke="{color}" '
+            f'stroke-width="{stroke_width}" stroke-linecap="round" '
+            f'stroke-linejoin="round"/></svg>'
+        )
+    try:
+        from PyQt5.QtSvg import QSvgRenderer
+    except Exception:
+        return QIcon()
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    renderer = QSvgRenderer(svg.encode("utf-8"))
+    painter = QPainter(pix)
+    try:
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        renderer.render(painter)
+    finally:
+        painter.end()
+    return QIcon(pix)
+
+
+class ChevronSplitterHandle(QSplitterHandle):
+    """A splitter handle that paints a small chevron in the middle.
+
+    The chevron flips direction based on whether the left pane is collapsed,
+    giving the user a clear "click here to show/hide" affordance even when the
+    sidebar has been dragged to zero width. Clicking the handle (without
+    dragging) toggles the sidebar.
+    """
+
+    HANDLE_WIDTH = 14
+
+    def __init__(self, orientation, parent):
+        super().__init__(orientation, parent)
+        self.setMouseTracking(True)
+        self._press_pos = None
+        self._hovered = False
+
+    def sizeHint(self):
+        return QSize(self.HANDLE_WIDTH, super().sizeHint().height())
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        self._press_pos = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        # If the mouse barely moved between press and release, treat it as a
+        # click and ask the parent splitter to toggle.
+        try:
+            moved = (
+                self._press_pos is None
+                or (event.pos() - self._press_pos).manhattanLength() > 4
+            )
+        except Exception:
+            moved = True
+        super().mouseReleaseEvent(event)
+        self._press_pos = None
+        if not moved:
+            sp = self.splitter()
+            if hasattr(sp, "request_toggle"):
+                sp.request_toggle()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        # Determine collapsed state from sibling sizes.
+        sp = self.splitter()
+        sizes = sp.sizes() if sp else [1, 1]
+        collapsed = bool(sizes) and sizes[0] <= 1
+        # Theme-aware colors via app palette.
+        app = QApplication.instance()
+        is_dark = False
+        try:
+            ss = app.styleSheet() if app else ""
+            is_dark = "DARK" in ss[:120].upper() or "#0F172A" in ss[:200]
+        except Exception:
+            pass
+        accent = QColor("#06B6D4")
+        rail = QColor("#1E293B" if is_dark else "#E2E8F0")
+        chevron = QColor(accent if (self._hovered or collapsed) else
+                         QColor("#64748B" if is_dark else "#94A3B8"))
+        # Subtle center spine instead of filling the whole 14px handle — keeps
+        # the splitter quiet so it doesn't compete with the scrollbar next to it.
+        cx = rect.center().x()
+        cy = rect.center().y()
+        spine_w = 1
+        spine_h = max(rect.height() - 24, 0)
+        if self._hovered or collapsed:
+            spine_color = QColor(accent)
+            spine_color.setAlphaF(0.30 if not collapsed else 0.55)
+            painter.fillRect(int(cx - spine_w / 2), int(cy - spine_h / 2),
+                             spine_w, spine_h, spine_color)
+        else:
+            spine_color = QColor(rail)
+            spine_color.setAlphaF(0.7)
+            painter.fillRect(int(cx - spine_w / 2), int(cy - spine_h / 2),
+                             spine_w, spine_h, spine_color)
+        # Chevron — 5px wide, 10px tall, pointing left when expanded, right when collapsed.
+        pen = QPen(chevron)
+        pen.setWidthF(1.6)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        path = QPainterPath()
+        if collapsed:
+            path.moveTo(cx - 2.5, cy - 5)
+            path.lineTo(cx + 2.5, cy)
+            path.lineTo(cx - 2.5, cy + 5)
+        else:
+            path.moveTo(cx + 2.5, cy - 5)
+            path.lineTo(cx - 2.5, cy)
+            path.lineTo(cx + 2.5, cy + 5)
+        painter.drawPath(path)
+        # A subtle dot pair above and below the chevron acts as a grip indicator.
+        dot = QColor(chevron)
+        dot.setAlphaF(0.55)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(dot)
+        for dy in (-14, 14):
+            painter.drawEllipse(QPoint(cx, cy + dy), 1, 1)
+        painter.end()
+
+
+class ChevronSplitter(QSplitter):
+    """Horizontal splitter that uses ChevronSplitterHandle and animates toggles."""
+
+    toggleRequested = pyqtSignal()
+
+    def createHandle(self):
+        return ChevronSplitterHandle(self.orientation(), self)
+
+    def request_toggle(self):
+        self.toggleRequested.emit()
+
+
 class AutoTyperApp(QWidget):
     start_typing_signal = pyqtSignal()
     stop_typing_signal = pyqtSignal()
@@ -2070,6 +2866,14 @@ class AutoTyperApp(QWidget):
         self.dark_mode_action.triggered.connect(self.toggle_dark_mode)
         view_menu.addAction(self.dark_mode_action)
         view_menu.addSeparator()
+        self.toggle_sidebar_action = QAction('Hide Sidebar', self, checkable=True)
+        try:
+            self.toggle_sidebar_action.setShortcut(QKeySequence("Ctrl+\\"))
+        except Exception:
+            pass
+        self.toggle_sidebar_action.triggered.connect(self._toggle_sidebar)
+        view_menu.addAction(self.toggle_sidebar_action)
+        view_menu.addSeparator()
         self.always_on_top_action = QAction('Always on Top', self, checkable=True)
         self.always_on_top_action.triggered.connect(self.toggle_always_on_top)
         view_menu.addAction(self.always_on_top_action)
@@ -2090,8 +2894,8 @@ class AutoTyperApp(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setMenuBar(self.menu_bar)
         try:
-            main_layout.setContentsMargins(12, 12, 12, 12)
-            main_layout.setSpacing(10)
+            main_layout.setContentsMargins(0, 0, 0, 0)
+            main_layout.setSpacing(0)
         except Exception:
             pass
         try:
@@ -2100,134 +2904,224 @@ class AutoTyperApp(QWidget):
         except Exception:
             pass
 
+        # --- Masthead: wordmark + persona pill + global hotkey hint ---
+        masthead = QFrame(self)
+        masthead.setObjectName("masthead")
+        mast_layout = QHBoxLayout(masthead)
+        mast_layout.setContentsMargins(16, 10, 16, 10)
+        mast_layout.setSpacing(12)
+
+        wordmark_wrap = QWidget(masthead)
+        wordmark_layout = QHBoxLayout(wordmark_wrap)
+        wordmark_layout.setContentsMargins(0, 0, 0, 0)
+        wordmark_layout.setSpacing(8)
+        self.wordmark_logo = QLabel(masthead)
+        self.wordmark_logo.setObjectName("wordmarkLogo")
+        self.wordmark_logo.setFixedSize(22, 22)
+        self.wordmark_logo.setPixmap(self._build_wordmark_logo(22))
+        wordmark_layout.addWidget(self.wordmark_logo)
+        self.wordmark_label = QLabel(APP_NAME, masthead)
+        self.wordmark_label.setObjectName("wordmark")
+        wordmark_layout.addWidget(self.wordmark_label)
+        version_label = QLabel(f"v{APP_VERSION}", masthead)
+        version_label.setObjectName("wordmarkVersion")
+        wordmark_layout.addWidget(version_label)
+        mast_layout.addWidget(wordmark_wrap)
+        mast_layout.addStretch(1)
+
+        persona_label = QLabel("Persona", masthead)
+        persona_label.setObjectName("personaLabel")
+        mast_layout.addWidget(persona_label)
+        self.masthead_persona = QComboBox(masthead)
+        self.masthead_persona.setObjectName("personaPill")
+        self.masthead_persona.addItems([
+            "Custom (Manual Settings)",
+            "Deliberate Writer",
+            "Fast Messenger",
+            "Careful Coder",
+        ])
+        self.masthead_persona.setMinimumWidth(180)
+        mast_layout.addWidget(self.masthead_persona)
+
+        self.hotkey_hint_label = QLabel("", masthead)
+        self.hotkey_hint_label.setObjectName("hotkeyHint")
+        mast_layout.addSpacing(12)
+        mast_layout.addWidget(self.hotkey_hint_label)
+
+        main_layout.addWidget(masthead)
+
+        masthead_divider = QFrame(self)
+        masthead_divider.setObjectName("mastheadDivider")
+        masthead_divider.setFrameShape(QFrame.HLine)
+        masthead_divider.setFixedHeight(1)
+        main_layout.addWidget(masthead_divider)
+
+        body_wrap = QWidget(self)
+        body_layout = QVBoxLayout(body_wrap)
+        body_layout.setContentsMargins(12, 10, 12, 12)
+        body_layout.setSpacing(8)
+        main_layout.addWidget(body_wrap, 1)
+
         # --- Split layout: settings (left) + editor/run (right) ---
-        self.splitter = QSplitter(Qt.Horizontal, self)
-        main_layout.addWidget(self.splitter, 1)
+        self.splitter = ChevronSplitter(Qt.Horizontal, self)
+        self.splitter.toggleRequested.connect(
+            lambda: self._toggle_sidebar(self.splitter.sizes()[0] > 1)
+        )
+        body_layout.addWidget(self.splitter, 1)
 
         # Left: scrollable settings
-        settings_scroll = QScrollArea(self)
-        settings_scroll.setWidgetResizable(True)
-        settings_scroll.setFrameShape(QFrame.NoFrame)
+        self.settings_scroll = QScrollArea(self)
+        self.settings_scroll.setWidgetResizable(True)
+        self.settings_scroll.setFrameShape(QFrame.NoFrame)
         try:
-            settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            settings_scroll.setMinimumWidth(420)
+            self.settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            # Soft minimum so tab labels stay legible, but not so wide that the
+            # sidebar can't be shrunk or collapsed via the splitter.
+            self.settings_scroll.setMinimumWidth(260)
         except Exception:
             pass
-        settings_container = QWidget(settings_scroll)
-        settings_scroll.setWidget(settings_container)
+        settings_container = QWidget(self.settings_scroll)
+        self.settings_scroll.setWidget(settings_container)
         settings_container_layout = QVBoxLayout(settings_container)
-        settings_container_layout.setContentsMargins(0, 0, 0, 0)
+        settings_container_layout.setContentsMargins(2, 2, 2, 2)
+        settings_container_layout.setSpacing(0)
 
-        self.settings_group_box = QGroupBox("Configuration")
-        try:
-            self.settings_group_box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        except Exception:
-            pass
-        settings_container_layout.addWidget(self.settings_group_box, 0)
-        settings_container_layout.addStretch(1)
-        self.splitter.addWidget(settings_scroll)
+        # Sidebar is a single scrollable column of clearly-titled sections —
+        # no nested QGroupBoxes, no Setup/Safety tabs (Safety only had two
+        # checkboxes which now sit at the bottom of this list).
+        self.settings_panel = QWidget(self)
+        settings_panel_layout = QVBoxLayout(self.settings_panel)
+        settings_panel_layout.setContentsMargins(14, 10, 14, 10)
+        settings_panel_layout.setSpacing(10)
+        settings_container_layout.addWidget(self.settings_panel, 1)
+        self.splitter.addWidget(self.settings_scroll)
+        # Back-compat: code paths refer to settings_tabs.setEnabled(...). Point
+        # the alias at the same panel so those paths still work.
+        self.settings_tabs = self.settings_panel
 
-        # Settings tabs
-        settings_layout = QVBoxLayout()
-        self.settings_tabs = QTabWidget(self)
-        settings_layout.addWidget(self.settings_tabs)
+        def _section(title):
+            head = QLabel(title.upper())
+            head.setObjectName("sectionHeader")
+            settings_panel_layout.addWidget(head)
+            rule = QFrame()
+            rule.setObjectName("sectionRule")
+            rule.setFrameShape(QFrame.HLine)
+            rule.setFixedHeight(1)
+            settings_panel_layout.addWidget(rule)
+            body = QWidget()
+            body_lay = QVBoxLayout(body)
+            body_lay.setContentsMargins(0, 4, 0, 0)
+            body_lay.setSpacing(6)
+            settings_panel_layout.addWidget(body)
+            return body, body_lay
 
-        # --- Setup tab (Basics + Handling) ---
-        setup_tab = QWidget(self)
-        setup_layout = QVBoxLayout(setup_tab)
-        try:
-            setup_layout.setContentsMargins(8, 8, 8, 8)
-            setup_layout.setSpacing(10)
-        except Exception:
-            pass
-
-        basics_box = QGroupBox("Basics")
-        basics_form = QFormLayout()
-        try:
-            basics_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        except Exception:
-            pass
-
+        # ---- Pacing ----
+        pacing_body, pacing_lay = _section("Pacing")
+        pacing_row = QHBoxLayout()
+        pacing_row.setSpacing(10)
         self.laps_spin = QSpinBox()
         self.laps_spin.setRange(1, 1000)
         self.laps_spin.setValue(DEFAULT_LAPS)
         self.delay_spin = QSpinBox()
         self.delay_spin.setRange(0, 60)
         self.delay_spin.setValue(DEFAULT_DELAY)
-        basics_form.addRow("Laps:", self.laps_spin)
-        basics_form.addRow("Start delay (sec):", self.delay_spin)
+        for spin in (self.laps_spin, self.delay_spin):
+            spin.setMinimumWidth(70)
+        laps_lbl = QLabel("Laps")
+        laps_lbl.setObjectName("fieldLabel")
+        delay_lbl = QLabel("Delay (s)")
+        delay_lbl.setObjectName("fieldLabel")
+        pacing_row.addWidget(laps_lbl)
+        pacing_row.addWidget(self.laps_spin)
+        pacing_row.addSpacing(16)
+        pacing_row.addWidget(delay_lbl)
+        pacing_row.addWidget(self.delay_spin)
+        pacing_row.addStretch(1)
+        pacing_lay.addLayout(pacing_row)
 
-        self.persona_combo = QComboBox()
-        self.persona_combo.addItems(["Custom (Manual Settings)", "Deliberate Writer", "Fast Messenger", "Careful Coder"])
+        # Persona is already the highlighted control in the masthead — alias the
+        # legacy `persona_combo` name there so existing code keeps working
+        # without rendering a second copy in the sidebar.
+        self.persona_combo = self.masthead_persona
         self.persona_combo.currentIndexChanged.connect(self.on_persona_changed)
-        basics_form.addRow("Typing persona:", self.persona_combo)
-        basics_box.setLayout(basics_form)
-        setup_layout.addWidget(basics_box)
 
-        self.manual_settings_group = QGroupBox("Humanization")
-        manual_layout = QVBoxLayout()
+        # ---- Speed ----
+        self.manual_settings_group, speed_lay = _section("Speed")
         self.min_wpm_slider = QSlider(Qt.Horizontal)
         self.min_wpm_slider.setRange(MIN_WPM_LIMIT, MAX_WPM_LIMIT)
         self.min_wpm_slider.setValue(DEFAULT_MIN_WPM)
         self.max_wpm_slider = QSlider(Qt.Horizontal)
         self.max_wpm_slider.setRange(MIN_WPM_LIMIT, MAX_WPM_LIMIT)
         self.max_wpm_slider.setValue(DEFAULT_MAX_WPM)
-        self.min_wpm_label = QLabel(f"Min: {DEFAULT_MIN_WPM} WPM")
-        self.max_wpm_label = QLabel(f"Max: {DEFAULT_MAX_WPM} WPM")
-        speed1 = QHBoxLayout()
-        speed1.addWidget(self.min_wpm_label, 1)
-        speed1.addWidget(self.min_wpm_slider, 4)
-        speed2 = QHBoxLayout()
-        speed2.addWidget(self.max_wpm_label, 1)
-        speed2.addWidget(self.max_wpm_slider, 4)
+        self.min_wpm_label = QLabel(f"{DEFAULT_MIN_WPM} WPM")
+        self.max_wpm_label = QLabel(f"{DEFAULT_MAX_WPM} WPM")
+        for chip in (self.min_wpm_label, self.max_wpm_label):
+            chip.setObjectName("valueChip")
+            chip.setMinimumWidth(86)
+            chip.setAlignment(Qt.AlignCenter)
+
+        def _speed_row(name, slider, value_chip):
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            label = QLabel(name)
+            label.setObjectName("fieldLabel")
+            label.setMinimumWidth(36)
+            row.addWidget(label)
+            row.addWidget(slider, 1)
+            row.addWidget(value_chip)
+            return row
+
+        speed_lay.addLayout(_speed_row("Min", self.min_wpm_slider, self.min_wpm_label))
+        speed_lay.addLayout(_speed_row("Max", self.max_wpm_slider, self.max_wpm_label))
+
+        humanizers = QHBoxLayout()
+        humanizers.setSpacing(18)
         self.add_mistakes_checkbox = QCheckBox("Add mistakes")
         self.add_mistakes_checkbox.setChecked(True)
         self.pause_on_punct_checkbox = QCheckBox("Pause on punctuation")
         self.pause_on_punct_checkbox.setChecked(True)
-        human_layout = QHBoxLayout()
-        human_layout.addWidget(self.add_mistakes_checkbox)
-        human_layout.addWidget(self.pause_on_punct_checkbox)
-        human_layout.addStretch()
-        manual_layout.addLayout(speed1)
-        manual_layout.addLayout(speed2)
-        manual_layout.addLayout(human_layout)
-        self.manual_settings_group.setLayout(manual_layout)
-        setup_layout.addWidget(self.manual_settings_group)
+        humanizers.addWidget(self.add_mistakes_checkbox)
+        humanizers.addWidget(self.pause_on_punct_checkbox)
+        humanizers.addStretch(1)
+        speed_lay.addLayout(humanizers)
 
-        self.newline_group_box = QGroupBox("Handling")
-        newline_layout = QVBoxLayout()
+        # ---- Newlines ----
+        self.newline_group_box, newline_lay = _section("Newlines")
         self.paste_mode_radio = QRadioButton("Line Paste (fastest)")
         self.paste_mode_radio.setToolTip("Pastes line-by-line using the clipboard (fast). Some apps may block paste.")
-        self.standard_radio = QRadioButton("Standard Typing (as-is)")
+        self.standard_radio = QRadioButton("Standard typing")
         self.standard_radio.setToolTip("Types every character exactly as provided.")
-        self.smart_radio = QRadioButton("Smart Newlines (prose)")
+        self.smart_radio = QRadioButton("Smart newlines (prose)")
         self.smart_radio.setToolTip("Turns single line breaks into spaces; double breaks remain paragraphs.")
-        self.list_mode_radio = QRadioButton("List Mode (code editors)")
+        self.list_mode_radio = QRadioButton("List mode (code)")
         self.list_mode_radio.setToolTip("Strips leading indentation; your editor controls indentation.")
         self.standard_radio.setChecked(True)
-        newline_layout.addWidget(self.paste_mode_radio)
-        newline_layout.addWidget(self.standard_radio)
-        newline_layout.addWidget(self.smart_radio)
-        newline_layout.addWidget(self.list_mode_radio)
-        newline_layout.addSpacing(6)
-        self.use_shift_enter_checkbox = QCheckBox("Shift+Enter newlines (chat apps)")
-        self.use_shift_enter_checkbox.setToolTip("Use Shift+Enter instead of Enter for newlines (prevents sending).")
-        newline_layout.addWidget(self.use_shift_enter_checkbox)
+        nl_grid = QGridLayout()
+        nl_grid.setHorizontalSpacing(12)
+        nl_grid.setVerticalSpacing(4)
+        nl_grid.addWidget(self.paste_mode_radio, 0, 0)
+        nl_grid.addWidget(self.standard_radio, 0, 1)
+        nl_grid.addWidget(self.smart_radio, 1, 0)
+        nl_grid.addWidget(self.list_mode_radio, 1, 1)
+        nl_grid.setColumnStretch(0, 1)
+        nl_grid.setColumnStretch(1, 1)
+        newline_lay.addLayout(nl_grid)
+
+        # ---- Behavior ----
+        behavior_body, behavior_lay = _section("Behavior")
+        self.use_shift_enter_checkbox = QCheckBox("Shift+Enter for newlines")
+        self.use_shift_enter_checkbox.setToolTip("Use Shift+Enter instead of Enter for newlines (prevents sending in chat apps).")
         self.type_tabs_checkbox = QCheckBox("Preserve tab characters")
         self.type_tabs_checkbox.setChecked(True)
-        newline_layout.addWidget(self.type_tabs_checkbox)
-        self.press_esc_checkbox = QCheckBox("Send Esc before Enter (dismiss autocomplete)")
+        self.press_esc_checkbox = QCheckBox("Press Esc before Enter")
+        self.press_esc_checkbox.setToolTip("Sends Esc before Enter to dismiss IDE autocomplete popups.")
         self.press_esc_checkbox.setChecked(False)
-        newline_layout.addWidget(self.press_esc_checkbox)
         self.mouse_jitter_checkbox = QCheckBox("Background mouse jitter")
         self.mouse_jitter_checkbox.setChecked(True)
         self.mouse_jitter_checkbox.setToolTip("Tiny background mouse movement to prevent idle (optional).")
-        newline_layout.addWidget(self.mouse_jitter_checkbox)
         self.auto_detect_checkbox = QCheckBox("Auto-optimize for target app")
         self.auto_detect_checkbox.setChecked(True)
-        newline_layout.addWidget(self.auto_detect_checkbox)
-        self.ime_friendly_checkbox = QCheckBox("IME-friendly (paste typing)")
-        newline_layout.addWidget(self.ime_friendly_checkbox)
+        self.ime_friendly_checkbox = QCheckBox("IME-friendly paste typing")
         self.unicode_hex_checkbox = QCheckBox("Unicode Hex typing (macOS)")
         if platform.system() != 'Darwin':
             self.unicode_hex_checkbox.setEnabled(False)
@@ -2235,41 +3129,42 @@ class AutoTyperApp(QWidget):
         else:
             self.unicode_hex_checkbox.setToolTip("Requires 'Unicode Hex Input' input source in System Settings > Keyboard.")
             self.unicode_hex_checkbox.setChecked(True)
-        newline_layout.addWidget(self.unicode_hex_checkbox)
-        self.compliance_mode_checkbox = QCheckBox("Compliance mode (block apps)")
+
+        for cb in (
+            self.use_shift_enter_checkbox, self.type_tabs_checkbox,
+            self.press_esc_checkbox, self.mouse_jitter_checkbox,
+            self.auto_detect_checkbox, self.ime_friendly_checkbox,
+            self.unicode_hex_checkbox,
+        ):
+            behavior_lay.addWidget(cb)
+
+        # ---- Compliance ----
+        compliance_body, compliance_lay = _section("Compliance")
+        self.compliance_mode_checkbox = QCheckBox("Pause when a blocked app is active")
         self.compliance_mode_checkbox.setToolTip("Auto-pauses when a blocked app becomes active.")
-        newline_layout.addWidget(self.compliance_mode_checkbox)
-        blocked_layout = QHBoxLayout()
-        blocked_lbl = QLabel("Blocked apps:")
-        blocked_lbl.setToolTip("Comma-separated list (used when Compliance mode is enabled).")
-        blocked_layout.addWidget(blocked_lbl)
+        compliance_lay.addWidget(self.compliance_mode_checkbox)
+        blocked_row = QHBoxLayout()
+        blocked_row.setSpacing(8)
+        blocked_lbl = QLabel("Blocked apps")
+        blocked_lbl.setObjectName("fieldLabel")
+        blocked_lbl.setToolTip("Comma-separated list of app names.")
+        blocked_row.addWidget(blocked_lbl)
         self.blocked_apps_edit = QLineEdit("Chrome,Safari,Firefox,Edge,Brave,Opera")
-        blocked_layout.addWidget(self.blocked_apps_edit, 1)
-        newline_layout.addLayout(blocked_layout)
-        self.newline_group_box.setLayout(newline_layout)
-        setup_layout.addWidget(self.newline_group_box)
+        blocked_row.addWidget(self.blocked_apps_edit, 1)
+        compliance_lay.addLayout(blocked_row)
 
-        setup_layout.addStretch(1)
-        self.settings_tabs.addTab(setup_tab, "Setup")
-
-        # --- Safety tab ---
-        safety_tab = QWidget(self)
-        safety_layout = QVBoxLayout(safety_tab)
-        safety_box = QGroupBox("Safety & Macros")
-        safety_box_layout = QVBoxLayout()
-        self.enable_macros_checkbox = QCheckBox("Enable macro execution ({{PAUSE}}, {{PRESS}}, {{CLICK}})")
+        # ---- Macros ----
+        macros_body, macros_lay = _section("Macros")
+        self.enable_macros_checkbox = QCheckBox("Enable macro execution")
         self.enable_macros_checkbox.setChecked(True)
-        self.enable_macros_checkbox.setToolTip("When off, macros are typed literally as text.")
-        self.confirm_click_checkbox = QCheckBox("Confirm before executing CLICK macros")
+        self.enable_macros_checkbox.setToolTip("When off, {{PAUSE}}, {{PRESS}}, {{CLICK}} are typed literally as text.")
+        self.confirm_click_checkbox = QCheckBox("Confirm before CLICK macros")
         self.confirm_click_checkbox.setChecked(True)
         self.confirm_click_checkbox.setToolTip("Adds a confirmation prompt before any CLICK macro is executed.")
-        safety_box_layout.addWidget(self.enable_macros_checkbox)
-        safety_box_layout.addWidget(self.confirm_click_checkbox)
-        safety_box.setLayout(safety_box_layout)
-        safety_layout.addWidget(safety_box)
-        self.settings_tabs.addTab(safety_tab, "Safety")
+        macros_lay.addWidget(self.enable_macros_checkbox)
+        macros_lay.addWidget(self.confirm_click_checkbox)
 
-        self.settings_group_box.setLayout(settings_layout)
+        settings_panel_layout.addStretch(1)
 
         # Right: editor + run controls
         right_container = QWidget(self)
@@ -2283,26 +3178,23 @@ class AutoTyperApp(QWidget):
             tools_layout.setSpacing(6)
         except Exception:
             pass
+
         self.open_tool_button = QToolButton(self)
-        self.open_tool_button.setIcon(self.style().standardIcon(QStyle.SP_DialogOpenButton))
+        self.open_tool_button.setIcon(make_lucide_icon("open"))
         self.open_tool_button.setToolTip("Open…")
         self.open_tool_button.setText("Open")
         self.open_tool_button.clicked.connect(self.open_file)
         tools_layout.addWidget(self.open_tool_button)
 
         self.save_tool_button = QToolButton(self)
-        self.save_tool_button.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        self.save_tool_button.setIcon(make_lucide_icon("save"))
         self.save_tool_button.setToolTip("Save As…")
         self.save_tool_button.setText("Save")
         self.save_tool_button.clicked.connect(self.save_file)
         tools_layout.addWidget(self.save_tool_button)
 
         self.format_tool_button = QToolButton(self)
-        try:
-            fmt_pix = getattr(QStyle, "SP_FileDialogDetailedView", QStyle.SP_FileIcon)
-        except Exception:
-            fmt_pix = QStyle.SP_FileIcon
-        self.format_tool_button.setIcon(self.style().standardIcon(fmt_pix))
+        self.format_tool_button.setIcon(make_lucide_icon("format"))
         self.format_tool_button.setToolTip("Format tools")
         self.format_tool_button.setText("Format")
         self.format_tool_button.setPopupMode(QToolButton.InstantPopup)
@@ -2318,11 +3210,7 @@ class AutoTyperApp(QWidget):
         tools_layout.addWidget(self.format_tool_button)
 
         self.macro_tool_button = QToolButton(self)
-        try:
-            macro_pix = getattr(QStyle, 'SP_CommandLink', QStyle.SP_DialogApplyButton)
-        except Exception:
-            macro_pix = QStyle.SP_DialogApplyButton
-        self.macro_tool_button.setIcon(self.style().standardIcon(macro_pix))
+        self.macro_tool_button.setIcon(make_lucide_icon("macros"))
         self.macro_tool_button.setToolTip("Insert a macro at the cursor")
         self.macro_tool_button.setText("Macros")
         self.macro_tool_button.setPopupMode(QToolButton.InstantPopup)
@@ -2337,25 +3225,21 @@ class AutoTyperApp(QWidget):
         tools_layout.addStretch(1)
 
         self.clean_button = QToolButton(self)
-        try:
-            clean_pix = getattr(QStyle, "SP_BrowserReload", QStyle.SP_DialogResetButton)
-        except Exception:
-            clean_pix = QStyle.SP_DialogResetButton
-        self.clean_button.setIcon(self.style().standardIcon(clean_pix))
+        self.clean_button.setIcon(make_lucide_icon("clean"))
         self.clean_button.setToolTip("Clean whitespace and decode HTML entities (&amp; → &)")
         self.clean_button.setText("Clean")
         self.clean_button.clicked.connect(self.clean_whitespace)
         tools_layout.addWidget(self.clean_button)
 
         self.clear_button = QToolButton(self)
-        self.clear_button.setIcon(self.style().standardIcon(QStyle.SP_DialogDiscardButton))
+        self.clear_button.setIcon(make_lucide_icon("clear"))
         self.clear_button.setToolTip("Clear text")
         self.clear_button.setText("Clear")
         self.clear_button.clicked.connect(self.clear_text)
         tools_layout.addWidget(self.clear_button)
 
-        for b in (self.open_tool_button, self.save_tool_button, self.format_tool_button,
-                  self.macro_tool_button, self.clean_button, self.clear_button):
+        for b in (self.open_tool_button, self.save_tool_button,
+                  self.format_tool_button, self.macro_tool_button, self.clean_button, self.clear_button):
             try:
                 b.setAutoRaise(True)
                 b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
@@ -2393,12 +3277,26 @@ class AutoTyperApp(QWidget):
         self._last_input_tab_index = self.input_tabs.currentIndex()
         right_layout.addWidget(self.input_tabs, 1)
 
-        # Tabs: Stats + Preview
-        self.text_info_tabs = QTabWidget(self)
+        # Inline metrics strip — replaces the old Stats tab. A single horizontal
+        # row of "Label  value" chips kept legible and glanceable.
+        self.metrics_strip = QFrame(self)
+        self.metrics_strip.setObjectName("metricsStrip")
+        metrics_layout = QHBoxLayout(self.metrics_strip)
+        metrics_layout.setContentsMargins(12, 6, 12, 6)
+        metrics_layout.setSpacing(0)
 
-        stats_tab = QWidget(self)
-        stats_grid = QGridLayout(stats_tab)
-        stats_grid.setColumnStretch(1, 1)
+        def _make_metric(label_text, value_widget):
+            wrap = QWidget(self.metrics_strip)
+            row = QHBoxLayout(wrap)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(6)
+            lbl = QLabel(label_text)
+            lbl.setObjectName("metricLabel")
+            value_widget.setObjectName("metricValue")
+            row.addWidget(lbl)
+            row.addWidget(value_widget)
+            return wrap
+
         self.stats_words_value = QLabel("0")
         self.stats_chars_value = QLabel("0")
         self.stats_lines_value = QLabel("0")
@@ -2407,64 +3305,88 @@ class AutoTyperApp(QWidget):
         self.stats_unicode_value = QLabel("0")
         self.stats_pause_value = QLabel("0.0s")
         self.stats_output_value = QLabel("0")
-        for v in (
-            self.stats_words_value, self.stats_chars_value, self.stats_lines_value, self.stats_macros_value,
-            self.stats_clicks_value, self.stats_unicode_value, self.stats_pause_value, self.stats_output_value,
-        ):
-            try:
-                v.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            except Exception:
-                pass
-        stats_grid.addWidget(QLabel("Words:"), 0, 0)
-        stats_grid.addWidget(self.stats_words_value, 0, 1)
-        stats_grid.addWidget(QLabel("Chars:"), 1, 0)
-        stats_grid.addWidget(self.stats_chars_value, 1, 1)
-        stats_grid.addWidget(QLabel("Lines:"), 2, 0)
-        stats_grid.addWidget(self.stats_lines_value, 2, 1)
-        stats_grid.addWidget(QLabel("Macros:"), 3, 0)
-        stats_grid.addWidget(self.stats_macros_value, 3, 1)
-        stats_grid.addWidget(QLabel("CLICK macros:"), 4, 0)
-        stats_grid.addWidget(self.stats_clicks_value, 4, 1)
-        stats_grid.addWidget(QLabel("Non-ASCII:"), 5, 0)
-        stats_grid.addWidget(self.stats_unicode_value, 5, 1)
-        stats_grid.addWidget(QLabel("PAUSE total:"), 6, 0)
-        stats_grid.addWidget(self.stats_pause_value, 6, 1)
-        stats_grid.addWidget(QLabel("Output chars (all laps):"), 7, 0)
-        stats_grid.addWidget(self.stats_output_value, 7, 1)
-        self.text_info_tabs.addTab(stats_tab, "Stats")
 
-        preview_tab = QWidget(self)
-        preview_layout = QVBoxLayout(preview_tab)
+        metric_items = [
+            ("Words", self.stats_words_value),
+            ("Chars", self.stats_chars_value),
+            ("Lines", self.stats_lines_value),
+            ("Macros", self.stats_macros_value),
+            ("Clicks", self.stats_clicks_value),
+            ("Non-ASCII", self.stats_unicode_value),
+            ("Pause", self.stats_pause_value),
+            ("Output", self.stats_output_value),
+        ]
+        for idx, (label_text, val) in enumerate(metric_items):
+            if idx > 0:
+                sep = QFrame(self.metrics_strip)
+                sep.setObjectName("metricSep")
+                sep.setFrameShape(QFrame.VLine)
+                sep.setFixedHeight(14)
+                metrics_layout.addSpacing(10)
+                metrics_layout.addWidget(sep)
+                metrics_layout.addSpacing(10)
+            metrics_layout.addWidget(_make_metric(label_text, val))
+        metrics_layout.addStretch(1)
+        right_layout.addWidget(self.metrics_strip)
+
+        # Preview panel — collapsed by default, expandable via a header toggle.
+        # Far less visual noise than the old Stats/Preview tab pair.
+        self.preview_toggle = QToolButton(self)
+        self.preview_toggle.setObjectName("previewToggle")
+        self.preview_toggle.setText("▸  Output preview")
+        self.preview_toggle.setCheckable(True)
+        self.preview_toggle.setChecked(False)
+        self.preview_toggle.setCursor(Qt.PointingHandCursor)
+        self.preview_toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.preview_toggle.setAutoRaise(True)
+        self.preview_toggle.toggled.connect(self._on_preview_toggle)
+        right_layout.addWidget(self.preview_toggle)
+
+        self.preview_panel = QFrame(self)
+        self.preview_panel.setObjectName("previewPanel")
+        preview_layout = QVBoxLayout(self.preview_panel)
+        preview_layout.setContentsMargins(0, 4, 0, 4)
+        preview_layout.setSpacing(4)
         self.processed_preview = QPlainTextEdit(self)
         self.processed_preview.setReadOnly(True)
         self.processed_preview.setPlaceholderText("Output preview (sample)…")
+        self.processed_preview.setMaximumHeight(140)
         preview_layout.addWidget(self.processed_preview, 1)
         self.mode_note_label = QLabel("")
         self.mode_note_label.setWordWrap(True)
+        self.mode_note_label.setObjectName("modeNote")
         preview_layout.addWidget(self.mode_note_label)
-        self.text_info_tabs.addTab(preview_tab, "Preview")
+        self.preview_panel.setVisible(False)
+        right_layout.addWidget(self.preview_panel)
 
-        try:
-            # Keep the editor as the primary focus; details stay compact but readable.
-            self.text_info_tabs.setMaximumHeight(240)
-        except Exception:
-            pass
-        right_layout.addWidget(self.text_info_tabs)
+        # Run controls — no outer group box. A thin top divider separates it
+        # from the editor area; the buttons themselves are the visual anchor.
+        run_divider = QFrame(self)
+        run_divider.setObjectName("runDivider")
+        run_divider.setFrameShape(QFrame.HLine)
+        run_divider.setFixedHeight(1)
+        right_layout.addWidget(run_divider)
 
-        # Run group
-        self.run_group_box = QGroupBox("Run")
-        run_layout = QVBoxLayout()
+        run_container = QWidget(self)
+        run_layout = QVBoxLayout(run_container)
+        run_layout.setContentsMargins(0, 8, 0, 0)
+        run_layout.setSpacing(8)
         run_btns = QHBoxLayout()
+        run_btns.setSpacing(10)
         self.start_button = QPushButton()
-        self.start_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+        self.start_button.setObjectName("startButton")
+        self.start_button.setIcon(make_lucide_icon("play", color="#F0FDF4", size=18))
         self.pause_button = QPushButton("PAUSE")
-        self.pause_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+        self.pause_button.setObjectName("pauseButton")
+        self.pause_button.setIcon(make_lucide_icon("pause", color="#94A3B8", size=16))
         self.pause_button.setEnabled(False)
         self.stop_button = QPushButton()
-        self.stop_button.setIcon(self.style().standardIcon(QStyle.SP_MediaStop))
+        self.stop_button.setObjectName("stopButton")
+        self.stop_button.setIcon(make_lucide_icon("stop", color="#94A3B8", size=14))
         for b in (self.start_button, self.pause_button, self.stop_button):
             try:
-                b.setMinimumHeight(38)
+                b.setMinimumHeight(40)
+                b.setCursor(Qt.PointingHandCursor)
             except Exception:
                 pass
         run_btns.addWidget(self.start_button, 2)
@@ -2482,9 +3404,11 @@ class AutoTyperApp(QWidget):
         run_layout.addLayout(progress_row)
 
         status_row = QHBoxLayout()
+        status_row.setSpacing(10)
         self.status_badge = QLabel()
-        self.status_badge.setFixedSize(10, 10)
-        self.status_badge.setStyleSheet("background-color: #888; border-radius: 5px;")
+        self.status_badge.setObjectName("statusBadge")
+        self.status_badge.setFixedSize(12, 12)
+        self.status_badge.setStyleSheet("background-color: #94A3B8; border-radius: 6px;")
         self.wpm_display = QLabel("Current: --- WPM")
         self.status_label = QLabel("Status: Idle")
         self.lap_label = QLabel("Lap: 0 / 0")
@@ -2495,17 +3419,26 @@ class AutoTyperApp(QWidget):
         status_row.addWidget(self.lap_label)
         status_row.addWidget(self.etr_label)
         run_layout.addLayout(status_row)
-        self.run_group_box.setLayout(run_layout)
-        right_layout.addWidget(self.run_group_box)
+        right_layout.addWidget(run_container)
 
         self.splitter.addWidget(right_container)
         try:
-            self.splitter.setCollapsible(0, False)
+            # Sidebar can be collapsed by dragging fully to the left or via the
+            # "Toggle Sidebar" action; the editor side stays anchored.
+            self.splitter.setChildrenCollapsible(True)
+            self.splitter.setCollapsible(0, True)
             self.splitter.setCollapsible(1, False)
             self.splitter.setStretchFactor(0, 0)
             self.splitter.setStretchFactor(1, 1)
+            self.splitter.setHandleWidth(ChevronSplitterHandle.HANDLE_WIDTH)
             # Reasonable defaults; user can resize and it's persisted.
-            self.splitter.setSizes([440, 800])
+            self.splitter.setSizes([360, 880])
+        except Exception:
+            pass
+        # Track last open width so toggle restores it after a collapse.
+        self._sidebar_last_width = 360
+        try:
+            self.splitter.splitterMoved.connect(self._on_splitter_moved)
         except Exception:
             pass
 
@@ -2840,7 +3773,7 @@ class AutoTyperApp(QWidget):
         """While paused, allow editing/tuning settings before resuming."""
         enable = bool(paused)
         try:
-            self.settings_group_box.setEnabled(enable)
+            self.settings_tabs.setEnabled(enable)
         except Exception:
             pass
         for w in (
@@ -2985,7 +3918,7 @@ class AutoTyperApp(QWidget):
         }
         color = colors.get(state or "idle", "#888888")
         try:
-            self.status_badge.setStyleSheet(f"background-color: {color}; border-radius: 5px;")
+            self.status_badge.setStyleSheet(f"background-color: {color}; border-radius: 6px;")
         except Exception:
             pass
 
@@ -3246,7 +4179,7 @@ class AutoTyperApp(QWidget):
         self.macro_tool_button.setEnabled(not is_running)
         self.clean_button.setEnabled(not is_running)
         self.clear_button.setEnabled(not is_running)
-        self.settings_group_box.setEnabled(not is_running)
+        self.settings_tabs.setEnabled(not is_running)
         if not is_running:
             self._set_status_state("idle")
             self._update_start_button_enabled()
@@ -3514,8 +4447,8 @@ class AutoTyperApp(QWidget):
         if min_wpm > max_wpm:
             max_wpm = min_wpm
             self.max_wpm_slider.setValue(min_wpm)
-        self.min_wpm_label.setText(f"Min: {min_wpm} WPM")
-        self.max_wpm_label.setText(f"Max: {max_wpm} WPM")
+        self.min_wpm_label.setText(f"{min_wpm} WPM")
+        self.max_wpm_label.setText(f"{max_wpm} WPM")
         if self.worker:
             self.worker.update_speed_range(min_wpm, max_wpm)
         # Keep estimate/stats/preview in sync with labels
@@ -3855,6 +4788,11 @@ class AutoTyperApp(QWidget):
             stop = str(stop_raw)
         self.start_button.setText(f"START ({start})")
         self.stop_button.setText(f"STOP ({stop})")
+        try:
+            if hasattr(self, "hotkey_hint_label"):
+                self.hotkey_hint_label.setText(f"⌨  {start}  ·  {stop}")
+        except Exception:
+            pass
 
     def start_listener(self):
         # Respect setting; disable on macOS 15 by default
@@ -3924,8 +4862,125 @@ class AutoTyperApp(QWidget):
             print(f"Hotkey listener error: {e}")
 
     def toggle_dark_mode(self, checked):
-        self.setStyleSheet(DARK_STYLESHEET if checked else "")
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(DARK_STYLESHEET if checked else LIGHT_STYLESHEET)
+        else:
+            self.setStyleSheet(DARK_STYLESHEET if checked else LIGHT_STYLESHEET)
         self.settings.setValue("darkMode", checked)
+
+    def _toggle_sidebar(self, hide):
+        """Hide/show the settings sidebar with a short animation.
+
+        Remembers the previous open width so toggling restores it.
+        """
+        try:
+            sizes = self.splitter.sizes()
+            total = sum(sizes) if sizes else self.width()
+        except Exception:
+            sizes, total = [0, 0], self.width()
+        if hide:
+            if sizes and sizes[0] > 1:
+                self._sidebar_last_width = sizes[0]
+            target_left = 0
+        else:
+            target = max(getattr(self, "_sidebar_last_width", 360), 260)
+            target_left = min(target, max(total - 400, 260))
+        self._animate_splitter(sizes[0] if sizes else 0, target_left, total)
+        # Keep the menu action in sync.
+        try:
+            self.toggle_sidebar_action.blockSignals(True)
+            self.toggle_sidebar_action.setChecked(hide)
+        finally:
+            try:
+                self.toggle_sidebar_action.blockSignals(False)
+            except Exception:
+                pass
+
+    def _animate_splitter(self, start, end, total):
+        anim = getattr(self, "_sidebar_anim", None)
+        if anim is not None:
+            try:
+                anim.stop()
+            except Exception:
+                pass
+        anim = QVariantAnimation(self)
+        anim.setStartValue(int(start))
+        anim.setEndValue(int(end))
+        anim.setDuration(180)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+
+        def on_value(v):
+            try:
+                left = int(v)
+                self.splitter.setSizes([left, max(total - left, 1)])
+            except Exception:
+                pass
+
+        anim.valueChanged.connect(on_value)
+        self._sidebar_anim = anim
+        anim.start()
+
+    def _build_wordmark_logo(self, size=22):
+        pix = QPixmap(size, size)
+        pix.fill(Qt.transparent)
+        painter = QPainter(pix)
+        try:
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            # Rounded square in accent cyan, with a stroked "caret" mark inside.
+            painter.setBrush(QColor("#06B6D4"))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(0, 0, size, size, 6, 6)
+            pen = QPen(QColor("#0F172A"))
+            pen.setWidthF(max(1.6, size * 0.10))
+            pen.setCapStyle(Qt.RoundCap)
+            pen.setJoinStyle(Qt.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            inset = size * 0.27
+            mid = size / 2
+            path = QPainterPath()
+            path.moveTo(inset, inset)
+            path.lineTo(inset, size - inset)
+            path.moveTo(inset, inset)
+            path.lineTo(size - inset, size - inset)
+            path.moveTo(size - inset, inset)
+            path.lineTo(size - inset, size - inset)
+            painter.drawPath(path)
+        finally:
+            painter.end()
+        return pix
+
+    def _on_preview_toggle(self, checked):
+        try:
+            self.preview_panel.setVisible(bool(checked))
+            self.preview_toggle.setText(
+                ("▾  Output preview" if checked else "▸  Output preview")
+            )
+        except Exception:
+            pass
+
+    def _on_splitter_moved(self, *_):
+        try:
+            sizes = self.splitter.sizes()
+        except Exception:
+            return
+        if not sizes:
+            return
+        is_hidden = sizes[0] <= 1
+        if not is_hidden:
+            self._sidebar_last_width = sizes[0]
+        ctrl = getattr(self, "toggle_sidebar_action", None)
+        if ctrl is None or ctrl.isChecked() == is_hidden:
+            return
+        try:
+            ctrl.blockSignals(True)
+            ctrl.setChecked(is_hidden)
+        finally:
+            try:
+                ctrl.blockSignals(False)
+            except Exception:
+                pass
 
     def populate_profiles_menu(self):
         self.load_profile_menu.clear()
@@ -4153,9 +5208,9 @@ class AutoTyperApp(QWidget):
     def load_settings(self):
         if geom := self.settings.value("geometry"):
             self.restoreGeometry(geom)
-        if self.settings.value("darkMode", False, type=bool):
-            self.dark_mode_action.setChecked(True)
-            self.toggle_dark_mode(True)
+        dark = self.settings.value("darkMode", False, type=bool)
+        self.dark_mode_action.setChecked(dark)
+        self.toggle_dark_mode(dark)
         
         always_on_top = self.settings.value("alwaysOnTop", False, type=bool)
         self.always_on_top_action.setChecked(always_on_top)
@@ -4181,16 +5236,15 @@ class AutoTyperApp(QWidget):
                     nums = re.findall(r"\d+", sizes)
                     sizes = [int(n) for n in nums]
                 if isinstance(sizes, (list, tuple)) and len(sizes) >= 2:
-                    left = int(sizes[0])
-                    right = int(sizes[1])
-                    min_left, min_right = 420, 560
-                    total = left + right
-                    if total <= 0:
-                        total = max(1200, self.width())
-                    if left < min_left or right < min_right:
-                        left = max(min_left, min(480, total - min_right))
-                        right = max(min_right, total - left)
+                    left = max(0, int(sizes[0]))
+                    right = max(0, int(sizes[1]))
+                    # Collapsed sidebar (left == 0) is a valid state — preserve it.
+                    if left + right <= 0:
+                        left, right = 360, max(560, self.width() - 360)
                     self.splitter.setSizes([left, right])
+                    if left > 0:
+                        self._sidebar_last_width = left
+                    self._on_splitter_moved()
         except Exception:
             pass
         try:
@@ -4356,6 +5410,24 @@ class AutoTyperApp(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+    try:
+        from PyQt5.QtGui import QFont
+        if platform.system() == "Darwin":
+            family = "SF Pro Text"
+        elif platform.system() == "Windows":
+            family = "Segoe UI"
+        else:
+            family = "Inter"
+        families = QFontDatabase().families()
+        if family not in families:
+            for fb in ("SF Pro Text", "Segoe UI", "Inter", "Helvetica Neue", "Arial"):
+                if fb in families:
+                    family = fb
+                    break
+        app.setFont(QFont(family, 10))
+    except Exception:
+        pass
 
     # Rely on Qt window management for stability across platforms
     window = AutoTyperApp()
