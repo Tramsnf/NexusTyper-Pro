@@ -30,6 +30,8 @@ All notable changes to this project will be documented in this file.
   apps mutate their window titles while text is being typed.
 - macOS typing now blocks with an Accessibility-permission prompt instead of
   silently running when the installed app cannot send keystrokes.
+- Packaged update checks and installer downloads now use a bundled CA store
+  so macOS builds can verify GitHub HTTPS certificates.
 
 ## [3.3] — 2025-04-21
 

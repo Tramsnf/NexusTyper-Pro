@@ -199,6 +199,7 @@ jobs:
             --icon icon.ico `
             --add-data "ico2.png;." `
             --add-data "ico.png;." `
+            --collect-data certifi `
             --hidden-import PyQt5.QtSvg `
             "NexusTyper Pro.py"
 
@@ -310,6 +311,7 @@ jobs:
             --name "NexusTyper-Pro" \
             --add-data "ico2.png:." \
             --add-data "ico.png:." \
+            --collect-data certifi \
             --hidden-import PyQt5.QtSvg \
             "NexusTyper Pro.py"
 

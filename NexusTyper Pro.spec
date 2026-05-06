@@ -10,6 +10,7 @@ PyInstaller flags; this spec is the macOS canonical.
 import os
 import platform
 import re
+from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
 
@@ -30,6 +31,7 @@ datas = [
     ('ico.png', '.'),
     ('ico2.png', '.'),
 ]
+datas += collect_data_files('certifi')
 
 # AppKit is bundled by pyobjc on macOS. We only add an extra binary on
 # Darwin and only if the system framework is at the expected path.

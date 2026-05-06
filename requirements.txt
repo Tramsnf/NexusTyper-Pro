@@ -6,6 +6,7 @@ PyQt5>=5.15.10,<6
 pyautogui>=0.9.54,<1
 pynput>=1.7.6,<2
 pyperclip>=1.8.2,<2
+certifi>=2024.8.30
 
 # macOS-only deps. Pulled in automatically on Darwin so cross-platform CI
 # doesn't try to compile them on Linux/Windows.

@@ -169,9 +169,11 @@ appears, a non-blocking dialog shows the new version's notes with a
 (`.pkg` / `Setup.exe` / `.deb`) to your Downloads folder with a progress
 bar, then hands it to the system installer so you only have to click
 through the wizard. The dialog also keeps an *Open download page* fallback
-for releases that ship only portable archives. Background checks fire at
-most once a day; the manual menu action bypasses the throttle. Configure
-or disable the checker by changing `UPDATE_FEED_URL` near the top of
+for releases that ship only portable archives. Packaged builds include a
+bundled CA certificate store for HTTPS checks, so macOS builds do not depend
+on the host Python certificate installer. Background checks fire at most
+once a day; the manual menu action bypasses the throttle. Configure or
+disable the checker by changing `UPDATE_FEED_URL` near the top of
 [`NexusTyper Pro.py`](NexusTyper%20Pro.py) (set to `""` to disable).
 
 ### Cutting a release
@@ -181,9 +183,9 @@ Bump `APP_VERSION` in `NexusTyper Pro.py`, commit, then push a matching
 attaches them to a GitHub Release with auto-generated notes:
 
 ```bash
-# Edit APP_VERSION = "3.4" in the source first, commit, then:
-git tag v3.4
-git push origin v3.4
+# Edit APP_VERSION = "X.Y.Z" in the source first, commit, then:
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 You can also test the build pipeline without cutting a release — push the

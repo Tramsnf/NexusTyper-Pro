@@ -211,7 +211,7 @@ except ImportError as e:
 
 # --- Constants & App Info ---
 APP_NAME = "NexusTyper Pro"
-APP_VERSION = "3.5"
+APP_VERSION = "3.5.1"
 APP_AUTHOR = "TramsNF"
 APP_COPYRIGHT_YEAR = "2025"
 APP_SIGNATURE = "Automate. Create. Elevate."
@@ -260,6 +260,22 @@ def macos_accessibility_trusted(prompt=False) -> bool:
         # Fail open if the OS/framework probe itself fails; typing errors will
         # still surface through the normal worker exception path.
         return True
+
+
+def build_https_context():
+    """Use certifi's bundled CA store for packaged update checks/downloads."""
+    try:
+        import ssl
+        try:
+            import certifi
+            cafile = certifi.where()
+            if cafile and os.path.exists(cafile):
+                return ssl.create_default_context(cafile=cafile)
+        except Exception:
+            pass
+        return ssl.create_default_context()
+    except Exception:
+        return None
 
 
 def windows_foreground_window_identity():
@@ -2946,7 +2962,7 @@ class UpdateChecker(QObject):
                     "User-Agent": f"{APP_NAME}/{APP_VERSION} (+update-check)",
                 },
             )
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=8, context=build_https_context()) as resp:
                 payload = _json.loads(resp.read().decode("utf-8", errors="replace"))
         except Exception as e:
             self.checkFailed.emit(f"Update check failed: {e}")
@@ -3001,7 +3017,7 @@ class InstallerDownloader(QObject):
                     "User-Agent": f"{APP_NAME}/{APP_VERSION} (+update-download)",
                 },
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=15, context=build_https_context()) as resp:
                 total = int(resp.headers.get("Content-Length") or 0)
                 done = 0
                 with open(tmp, "wb") as f:
