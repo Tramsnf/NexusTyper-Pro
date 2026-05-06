@@ -1,11 +1,26 @@
-import faulthandler; faulthandler.enable()
+import os
 import sys
+import faulthandler
+
+# faulthandler defaults to writing crash tracebacks to sys.stderr, which is
+# None in a --windowed PyInstaller .exe on Windows (no console attached) and
+# raises RuntimeError on enable(). Route it to a file under the app's log dir
+# so packaged builds still capture native crashes.
+_FAULTHANDLER_LOG = os.path.join(
+    os.path.expanduser('~'), '.nexustyper_pro', 'logs', 'faulthandler.log',
+)
+try:
+    os.makedirs(os.path.dirname(_FAULTHANDLER_LOG), exist_ok=True)
+    _FAULTHANDLER_FILE = open(_FAULTHANDLER_LOG, 'a', buffering=1)
+    faulthandler.enable(file=_FAULTHANDLER_FILE)
+except OSError:
+    pass
+
 import time
 import re
 import random
 import platform
 import threading
-import os
 import subprocess
 
 from PyQt5.QtWidgets import (

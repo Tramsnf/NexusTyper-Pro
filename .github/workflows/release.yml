@@ -12,13 +12,6 @@ on:
 permissions:
   contents: write
 
-# Opt the existing JS actions (checkout@v4, setup-python@v5, upload-artifact@v4,
-# action-gh-release@v2) onto Node.js 24 now, ahead of GitHub's June 2026 forced
-# flip. This silences the deprecation warning without bumping action major
-# versions blindly.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 jobs:
   macos:
     name: Build macOS .app
@@ -57,14 +50,14 @@ jobs:
             "NexusTyper Pro.app" \
             "NexusTyper-Pro-${{ github.ref_name }}-macOS.zip"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: NexusTyper-Pro-macOS
           path: dist/*.zip
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*.zip
           generate_release_notes: true
@@ -110,14 +103,14 @@ jobs:
           $zip = "dist/NexusTyper-Pro-${{ github.ref_name }}-Windows.zip"
           Compress-Archive -Path "dist/NexusTyper Pro/*" -DestinationPath $zip
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: NexusTyper-Pro-Windows
           path: dist/*.zip
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*.zip
           generate_release_notes: true
@@ -162,14 +155,14 @@ jobs:
           cd dist
           tar -czf "NexusTyper-Pro-${{ github.ref_name }}-Linux.tar.gz" "NexusTyper-Pro"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: NexusTyper-Pro-Linux
           path: dist/*.tar.gz
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*.tar.gz
           generate_release_notes: true
