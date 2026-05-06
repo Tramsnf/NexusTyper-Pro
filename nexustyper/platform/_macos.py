@@ -11,11 +11,7 @@ from __future__ import annotations
 import subprocess
 
 from . import Platform
-
-
-MACOS_ACCESSIBILITY_SETTINGS_URL = (
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-)
+from nexustyper.constants import MACOS_ACCESSIBILITY_SETTINGS_URL
 
 
 class MacOSPlatform(Platform):

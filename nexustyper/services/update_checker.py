@@ -8,6 +8,7 @@ Never raises into Qt.
 """
 
 import os
+import platform
 import re
 
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot

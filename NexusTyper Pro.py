@@ -27,19 +27,18 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QTextEdit, QPushButton, QVBoxLayout, QHBoxLayout,
     QLabel, QSpinBox, QCheckBox, QSlider, QMessageBox, QProgressBar,
     QFileDialog, QAction, QMenuBar, QMenu, QDialog, QLineEdit,
-    QDialogButtonBox, QComboBox, QInputDialog, QTabWidget, QKeySequenceEdit,
-    QFormLayout, QGroupBox, QRadioButton, QPlainTextEdit, QCompleter,
-    QSplitter, QSplitterHandle, QScrollArea, QToolButton, QStyle, QGridLayout,
-    QFrame, QSizePolicy, QProgressDialog
+    QComboBox, QInputDialog, QTabWidget,
+    QRadioButton, QPlainTextEdit,
+    QScrollArea, QToolButton, QStyle,
+    QFrame, QProgressDialog,
 )
 from PyQt5.QtCore import (
-    Qt, pyqtSignal, QObject, QThread, QSettings, QEvent, QUrl, QStringListModel,
-    pyqtSlot, QTimer, QSize, QPoint, QRect, QPropertyAnimation, QEasingCurve,
-    pyqtProperty, QVariantAnimation
+    Qt, pyqtSignal, QThread, QSettings, QUrl,
+    QTimer, QSize, QEasingCurve, QVariantAnimation,
 )
 from PyQt5.QtGui import (
-    QKeySequence, QPixmap, QIcon, QTextDocument, QDesktopServices,
-    QFontDatabase, QFontMetrics, QPainter, QColor, QPen, QPainterPath
+    QKeySequence, QPixmap, QIcon, QDesktopServices,
+    QFontDatabase, QPainter, QColor, QPen, QPainterPath,
 )
 import json
 import html
@@ -71,15 +70,29 @@ from nexustyper.typing import (
     sanitize_ai_text, apply_smart_newlines, KEY_ADJACENCY,
     TypingWorker, DryRunWorker,
 )
+from nexustyper.typing.content_detection import (
+    categorize_title, detect_content_kind, contains_non_ascii,
+    looks_like_code, looks_like_math,
+)
 from nexustyper.services.update_checker import UpdateChecker
 from nexustyper.services.installer_downloader import InstallerDownloader
-from nexustyper.services.hotkeys import translate_hotkey_for_pynput
+from nexustyper.services.hotkey_listener import HotkeyListener
+from nexustyper.services.file_ingestion import (
+    load_text_from_path as _fi_load,
+    save_text_to_path as _fi_save,
+    supported_open_filter,
+    supported_save_filter,
+    FileIngestionError,
+)
+from nexustyper.ui.widgets.text_edit import PasteCleaningTextEdit, CodeEditor
+from nexustyper.ui.dialogs.dry_run import DryRunDialog
+from nexustyper.ui.icons import LUCIDE_PATHS, make_lucide_icon
 
 
 # Conditional import for platform-specific libraries
 try:
     import pyautogui
-    from pynput import keyboard
+    import pynput  # noqa: F401 — startup presence check; HotkeyListener does the real import
     import pyperclip
 except ImportError as e:
     print(f"Error: A required library is missing (e.g., pyautogui, pynput, pyperclip). Please install it. {e}")
@@ -105,330 +118,7 @@ if not logger.handlers:
     logger.addHandler(handler)
 
 
-# TextEdit subclass to clean pasted text automatically
-class PasteCleaningTextEdit(QTextEdit):
-    fileDropped = pyqtSignal(str)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Allow richer pasting but normalize to clean plain text
-        self.setAcceptRichText(False)
-        self.setAcceptDrops(True)
-
-    def insertFromMimeData(self, source):
-        try:
-            # Prefer HTML conversion when available to preserve logical breaks
-            if hasattr(source, 'hasHtml') and source.hasHtml():
-                html = source.html()
-                doc = QTextDocument()
-                doc.setHtml(html)
-                text = doc.toPlainText()
-            elif source.hasText():
-                text = source.text()
-            else:
-                return super().insertFromMimeData(source)
-
-            # Full AI-paste sanitize: entities, invisibles, exotic spaces,
-            # smart punctuation, and line endings.
-            text = sanitize_ai_text(text)
-            # Collapse 3+ blank lines to 2 to avoid huge gaps
-            text = re.sub(r'\n{3,}', '\n\n', text)
-            self.insertPlainText(text)
-        except Exception:
-            # Fallback to default behavior on unexpected formats
-            super().insertFromMimeData(source)
-
-    def dragEnterEvent(self, event):
-        md = event.mimeData()
-        if md.hasUrls():
-            for url in md.urls():
-                if url.isLocalFile():
-                    event.acceptProposedAction()
-                    return
-        super().dragEnterEvent(event)
-
-    def dropEvent(self, event):
-        md = event.mimeData()
-        if md.hasUrls():
-            for url in md.urls():
-                if url.isLocalFile():
-                    path = url.toLocalFile()
-                    self.fileDropped.emit(path)
-                    event.acceptProposedAction()
-                    return
-        super().dropEvent(event)
-
 # TypingWorker handles the typing automation in a separate thread
-
-
-class DryRunDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Dry Run Preview")
-        self.resize(700, 500)
-        self.setWindowModality(Qt.NonModal)
-        v = QVBoxLayout(self)
-        # Tabs: Text preview and Code Editor
-        self.tabs = QTabWidget(self)
-        # Text preview tab
-        self.view = QTextEdit(self)
-        self.view.setReadOnly(True)
-        self.tabs.addTab(self.view, "Preview")
-        # Code editor tab with basic autocomplete
-        self.code_editor = CodeEditor(self)
-        self.tabs.addTab(self.code_editor, "Code Editor")
-        v.addWidget(self.tabs)
-        h = QHBoxLayout()
-        self.start_btn = QPushButton("Start")
-        self.stop_btn = QPushButton("Stop")
-        self.reset_editor_btn = QPushButton("Reset Editor")
-        self.close_btn = QPushButton("Close")
-        h.addWidget(self.start_btn)
-        h.addWidget(self.stop_btn)
-        h.addWidget(self.reset_editor_btn)
-        h.addStretch()
-        h.addWidget(self.close_btn)
-        v.addLayout(h)
-        self.thread = None
-        self.worker = None
-        self.start_btn.clicked.connect(self.start)
-        self.stop_btn.clicked.connect(self.stop)
-        self.reset_editor_btn.clicked.connect(self.reset_editor)
-        self.close_btn.clicked.connect(self.accept)
-
-    def start(self):
-        if self.thread:
-            return
-        p = self.parent()
-        if not p:
-            return
-        text = p.get_input_text() if hasattr(p, "get_input_text") else ""
-        if not text.strip():
-            QMessageBox.information(self, "Dry Run", "Please enter some text first.")
-            return
-        mode = 'Standard'
-        if p.smart_radio.isChecked():
-            mode = 'Smart Newlines'
-        elif p.list_mode_radio.isChecked():
-            mode = 'List Mode'
-        elif p.paste_mode_radio.isChecked():
-            mode = 'Paste Mode'
-        self.view.clear()
-        self.code_editor.clear()
-        self.thread = QThread()
-        self.worker = DryRunWorker(
-            text,
-            p.laps_spin.value(),
-            p.min_wpm_slider.value(),
-            p.max_wpm_slider.value(),
-            mode,
-            p.use_shift_enter_checkbox.isChecked(),
-            p.type_tabs_checkbox.isChecked(),
-            p.enable_macros_checkbox.isChecked() if hasattr(p, "enable_macros_checkbox") else True,
-        )
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
-        self.worker.finished.connect(self.on_finished)
-        self.worker.update_preview.connect(self.on_char)
-        self.thread.start()
-
-    def stop(self):
-        if self.worker:
-            self.worker.stop()
-
-    def on_finished(self):
-        if self.thread:
-            self.thread.quit()
-            self.thread.wait()
-        self.thread = None
-        self.worker = None
-
-    def reset_editor(self):
-        self.code_editor.clear()
-
-    def on_char(self, ch: str):
-        # Send to text preview
-        self.view.insertPlainText(ch)
-        # Simulate code editor typing with basic autocomplete behaviour
-        p = self.parent()
-        if ch == '\n':
-            # Simulate 'Esc before Enter' if enabled to dismiss autocomplete
-            try:
-                if p and hasattr(p, 'press_esc_checkbox') and p.press_esc_checkbox.isChecked():
-                    self.code_editor.hide_completer()
-            except Exception:
-                pass
-            self.code_editor.insertPlainText('\n')
-        else:
-            self.code_editor.insertPlainText(ch)
-            self.code_editor.maybe_show_completions()
-
-
-class CodeEditor(QPlainTextEdit):
-    fileDropped = pyqtSignal(str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAcceptDrops(True)
-
-        # Prefer a fixed-width system font for code.
-        try:
-            fixed = QFontDatabase.systemFont(QFontDatabase.FixedFont)
-            if fixed:
-                self.setFont(fixed)
-        except Exception:
-            pass
-        try:
-            metrics = QFontMetrics(self.font())
-            self.setTabStopDistance(4 * metrics.horizontalAdvance(' '))
-        except Exception:
-            pass
-
-        # Basic word list for autocomplete (Python-ish + common terms)
-        words = [
-            'def','class','import','from','as','return','if','elif','else','for','while','try','except','finally','with','yield','lambda',
-            'True','False','None','and','or','not','in','is','pass','break','continue','global','nonlocal','assert','raise',
-            'print','input','len','range','open','list','dict','set','tuple','str','int','float','bool','sum','min','max','map','filter','zip','enumerate'
-        ]
-        self._model = QStringListModel(words, self)
-        self._completer = QCompleter(self._model, self)
-        self._completer.setWidget(self)
-        self._completer.setCompletionMode(QCompleter.PopupCompletion)
-        self._completer.setCaseSensitivity(Qt.CaseInsensitive)
-        self._completer.activated.connect(self.insert_completion)
-
-    def insertFromMimeData(self, source):
-        try:
-            if hasattr(source, "hasHtml") and source.hasHtml():
-                html = source.html()
-                doc = QTextDocument()
-                doc.setHtml(html)
-                text = doc.toPlainText()
-            elif source.hasText():
-                text = source.text()
-            else:
-                return super().insertFromMimeData(source)
-
-            text = text.replace('\r\n', '\n').replace('\r', '\n')
-            text = text.replace('\u00A0', ' ').replace('\u202F', ' ')
-            self.insertPlainText(text)
-        except Exception:
-            super().insertFromMimeData(source)
-
-    def dragEnterEvent(self, event):
-        md = event.mimeData()
-        if md.hasUrls():
-            for url in md.urls():
-                if url.isLocalFile():
-                    event.acceptProposedAction()
-                    return
-        super().dragEnterEvent(event)
-
-    def dropEvent(self, event):
-        md = event.mimeData()
-        if md.hasUrls():
-            for url in md.urls():
-                if url.isLocalFile():
-                    path = url.toLocalFile()
-                    self.fileDropped.emit(path)
-                    event.acceptProposedAction()
-                    return
-        super().dropEvent(event)
-
-    def current_word(self):
-        cursor = self.textCursor()
-        cursor.select(cursor.WordUnderCursor)
-        return cursor.selectedText()
-
-    def insert_completion(self, completion):
-        cursor = self.textCursor()
-        cursor.select(cursor.WordUnderCursor)
-        cursor.insertText(completion)
-        self.setTextCursor(cursor)
-
-    def hide_completer(self):
-        try:
-            self._completer.popup().hide()
-        except Exception:
-            pass
-
-    def maybe_show_completions(self):
-        prefix = self.current_word()
-        if not prefix or len(prefix) < 2 or not (prefix[-1].isalnum() or prefix[-1] == '_'):
-            self.hide_completer()
-            return
-        self._completer.setCompletionPrefix(prefix)
-        cr = self.cursorRect()
-        cr.setWidth(self._completer.popup().sizeHintForColumn(0) + self._completer.popup().verticalScrollBar().sizeHint().width())
-        self._completer.complete(cr)
-
-    # (Removed erroneous TypingWorker methods incorrectly placed here.)
-
-
-# Lucide-style icon paths (24x24 viewBox). Stroke 2, round caps/joins.
-# Render with `make_lucide_icon(name, color, size)` to get a tinted QIcon.
-LUCIDE_PATHS = {
-    # folder-open
-    "open": "M6 14l1.5-2.9A2 2 0 0 1 9.3 10H21l-2.5 6.1A2 2 0 0 1 16.7 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.7 1l.8 1a2 2 0 0 0 1.7 1H18a2 2 0 0 1 2 2v2",
-    # save (floppy)
-    "save": "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8 M7 3v5h8",
-    # wand-sparkles (format)
-    "format": "M15 4V2 M15 16v-2 M8 9h2 M20 9h2 M17.8 11.8 19 13 M15 9h0 M17.8 6.2 19 5 M3 21l9-9 M12.2 6.2 11 5",
-    # code-2 (macros / code)
-    "macros": "m18 16 4-4-4-4 M6 8l-4 4 4 4 M14.5 4l-5 16",
-    # eraser (clean)
-    "clean": "m7 21-4.3-4.3a1 1 0 0 1 0-1.4l9.6-9.6a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L13 21 M22 21H7 M5 11l9 9",
-    # x (clear / trash-ish)
-    "clear": "M18 6 6 18 M6 6l12 12",
-    # play (start)
-    "play": "M6 3v18l15-9z",
-    # pause (two bars)
-    "pause": "M14 4h4v16h-4z M6 4h4v16H6z",
-    # square (stop)
-    "stop": "M5 5h14v14H5z",
-    # info
-    "info": "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z M12 8h0 M11 12h1v4h1",
-    # settings
-    "settings": "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
-}
-
-
-def make_lucide_icon(name, color="#94A3B8", size=20, stroke_width=1.8):
-    """Render a Lucide-style icon to a QIcon, tinted to ``color``.
-
-    Uses QSvgRenderer so SVG arc/bezier commands (which Lucide relies on)
-    render correctly.
-    """
-    path_data = LUCIDE_PATHS.get(name)
-    if not path_data:
-        return QIcon()
-    filled = name in ("play", "stop", "pause")
-    if filled:
-        svg = (
-            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
-            f'<path d="{path_data}" fill="{color}" stroke="none"/></svg>'
-        )
-    else:
-        svg = (
-            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
-            f'<path d="{path_data}" fill="none" stroke="{color}" '
-            f'stroke-width="{stroke_width}" stroke-linecap="round" '
-            f'stroke-linejoin="round"/></svg>'
-        )
-    try:
-        from PyQt5.QtSvg import QSvgRenderer
-    except Exception:
-        return QIcon()
-    pix = QPixmap(size, size)
-    pix.fill(Qt.transparent)
-    renderer = QSvgRenderer(svg.encode("utf-8"))
-    painter = QPainter(pix)
-    try:
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        renderer.render(painter)
-    finally:
-        painter.end()
-    return QIcon(pix)
 
 
 class AutoTyperApp(QWidget):
@@ -445,8 +135,7 @@ class AutoTyperApp(QWidget):
         self._suppress_input_mode_changed = False
         self._suppress_persona_changed = False
         self._last_input_tab_index = 0
-        self.hotkey_listener = None
-        self.hotkey_listener_thread = None
+        self.hotkey_listener: HotkeyListener | None = None
         self.init_ui()
         self.load_settings()
         self.start_listener()
@@ -476,86 +165,19 @@ class AutoTyperApp(QWidget):
         return self._platform.active_app_identity()
 
     def _categorize_title(self, title):
-        t = (title or "").lower()
-        if any(k in t for k in ["code", "pycharm", "intellij", "webstorm", "clion", "goland", "xcode", "sublime", "atom", "notepad++", "vim", "emacs"]):
-            return 'code'
-        if any(k in t for k in ["slack", "teams", "discord", "skype", "telegram", "whatsapp", "wechat", "messages", "imessage"]):
-            return 'chat'
-        if any(k in t for k in ["notepad", "textedit", "notes"]):
-            return 'text'
-        if any(k in t for k in ["safari", "chrome", "chromium", "firefox", "edge", "brave", "opera"]):
-            return 'browser'
-        return 'unknown'
+        return categorize_title(title)
 
     def _detect_content_kind(self, text: str) -> str:
-        """Heuristic content detection: returns 'code', 'math', or 'prose'."""
-        t = text.strip()
-        if not t:
-            return 'prose'
-        try:
-            if self._looks_like_code(t):
-                return 'code'
-            if self._looks_like_math(t):
-                return 'math'
-        except Exception:
-            pass
-        return 'prose'
+        return detect_content_kind(text)
 
     def _contains_non_ascii(self, t: str) -> bool:
-        try:
-            return any(ord(ch) > 0x7F for ch in t)
-        except Exception:
-            return False
+        return contains_non_ascii(t)
 
     def _looks_like_code(self, t: str) -> bool:
-        # Fast signals
-        if '```' in t or '\t' in t:
-            return True
-        # Programming keywords across common languages
-        code_keywords = [
-            'import ', 'from ', 'def ', 'class ', 'return', 'if ', 'elif ', 'else:', 'while ', 'for ', 'try:', 'except', 'finally:',
-            'function ', 'var ', 'let ', 'const ', '=>', 'console.log', 'export ', 'require(', 'module.exports',
-            '#include', 'using ', 'namespace ', 'public ', 'private ', 'protected ', 'static ', 'void ', 'int ', 'string ', 'std::',
-            'fn ', 'match ', 'impl ', 'package ', 'interface ', 'enum ', 'struct '
-        ]
-        if any(kw in t for kw in code_keywords):
-            return True
-        # Symbols and patterns common in code
-        code_symbol_hits = sum(1 for ch in t if ch in '{}();<>[]:=#')
-        lines = t.splitlines()
-        semicolon_lines = sum(1 for ln in lines if ln.strip().endswith(';'))
-        brace_lines = sum(1 for ln in lines if ln.strip().endswith('{') or ln.strip().endswith('}'))
-        indent_lines = sum(1 for ln in lines if ln.startswith('    ') or ln.startswith('\t'))
-        # Heuristic thresholds
-        if code_symbol_hits >= max(6, len(t) // 80):
-            return True
-        if (semicolon_lines + brace_lines + indent_lines) >= max(3, len(lines) // 4):
-            return True
-        return False
+        return looks_like_code(t)
 
     def _looks_like_math(self, t: str) -> bool:
-        # Detect LaTeX math markers or Unicode math symbols
-        latex_markers = [
-            '\\frac', '\\sum', '\\prod', '\\int', '\\sqrt', '\\lim', '\\infty', '\\approx', '\\neq', '\\leq', '\\geq',
-            '\\alpha', '\\beta', '\\gamma', '\\delta', '\\theta', '\\lambda', '\\mu', '\\pi', '\\sigma', '\\omega', '$'
-        ]
-        if any(m in t for m in latex_markers):
-            return True
-        math_chars = set('∑∏√∞≤≥≈≠±°×÷∂∇πθαλµσδΩω∧∨⊂⊆∈∉∪∩∘→←↔·′″≃≡⊥∥∖∫∮∝')
-        math_hits = sum(1 for ch in t if ch in math_chars)
-        caret_unders = t.count('^') + t.count('_')
-        # Equations often have many operators
-        operator_hits = sum(1 for ch in t if ch in '+-*/=<>')
-        if math_hits >= 1:
-            return True
-        if caret_unders >= 2 and operator_hits >= 2:
-            return True
-        # Many short lines with operators suggests laid-out formula
-        lines = t.splitlines()
-        short_eq_lines = sum(1 for ln in lines if len(ln.strip()) <= 24 and any(op in ln for op in ['=', '≤', '≥', '≠']))
-        if short_eq_lines >= 2:
-            return True
-        return False
+        return looks_like_math(t)
 
     def _open_macos_accessibility_settings(self):
         try:
@@ -2644,6 +2266,13 @@ class AutoTyperApp(QWidget):
         except Exception:
             pass
 
+    def _build_hotkey_listener(self) -> HotkeyListener:
+        return HotkeyListener({
+            self.settings.value("startHotkey",  DEFAULT_START_HOTKEY):  self.start_typing_signal.emit,
+            self.settings.value("stopHotkey",   DEFAULT_STOP_HOTKEY):   self.stop_typing_signal.emit,
+            self.settings.value("resumeHotkey", DEFAULT_RESUME_HOTKEY): self.resume_typing_signal.emit,
+        })
+
     def start_listener(self):
         # Respect setting; disable on macOS 15 by default
         default_enable = True
@@ -2657,20 +2286,15 @@ class AutoTyperApp(QWidget):
         if not self.settings.value("enableGlobalHotkeys", default_enable, type=bool):
             self.status_label.setText("Status: Global hotkeys disabled. Use buttons or enable in Settings.")
             return
-        # Avoid spawning multiple global listeners.
-        if self.hotkey_listener_thread and self.hotkey_listener_thread.is_alive():
+        if self.hotkey_listener and self.hotkey_listener.is_running():
             return
-        self.hotkey_listener_thread = threading.Thread(target=self._run_listener, daemon=True)
-        self.hotkey_listener_thread.start()
+        # Rebuild each start so a settings-edit picks up new hotkey strings.
+        self.hotkey_listener = self._build_hotkey_listener()
+        self.hotkey_listener.start()
 
     def stop_listener(self):
-        listener = getattr(self, 'hotkey_listener', None)
-        if listener:
-            try:
-                listener.stop()
-            except Exception:
-                pass
-        self.hotkey_listener = None
+        if self.hotkey_listener:
+            self.hotkey_listener.stop()
 
     # --- In-app update checker ---
     def _start_update_check(self, verbose: bool = False):
@@ -2843,45 +2467,6 @@ class AutoTyperApp(QWidget):
             pass
         if getattr(self, "_update_verbose", False):
             QMessageBox.warning(self, "Update check failed", reason)
-        # Join briefly so restarts are reliable (especially for modeless dialogs).
-        if self.hotkey_listener_thread and self.hotkey_listener_thread.is_alive():
-            try:
-                self.hotkey_listener_thread.join(timeout=0.5)
-            except Exception:
-                pass
-        if self.hotkey_listener_thread and not self.hotkey_listener_thread.is_alive():
-            self.hotkey_listener_thread = None
-        
-    def _run_listener(self):
-        """The target function for the listener thread."""
-        try:
-            # Translate hotkeys before passing them to the listener
-            start_key = translate_hotkey_for_pynput(self.settings.value("startHotkey", DEFAULT_START_HOTKEY))
-            stop_key = translate_hotkey_for_pynput(self.settings.value("stopHotkey", DEFAULT_STOP_HOTKEY))
-            resume_key = translate_hotkey_for_pynput(self.settings.value("resumeHotkey", DEFAULT_RESUME_HOTKEY))
-
-            hotkeys = {}
-            if start_key:
-                hotkeys[start_key] = self.start_typing_signal.emit
-            if stop_key:
-                hotkeys[stop_key] = self.stop_typing_signal.emit
-            if resume_key:
-                hotkeys[resume_key] = self.resume_typing_signal.emit
-
-            if not hotkeys:
-                try:
-                    logger.warning("Global hotkeys not started: no valid hotkey bindings")
-                except Exception:
-                    pass
-                return
-            self.hotkey_listener = keyboard.GlobalHotKeys(hotkeys)
-            self.hotkey_listener.run()
-        except Exception as e:
-            try:
-                logger.exception("Hotkey listener error")
-            except Exception:
-                pass
-            print(f"Hotkey listener error: {e}")
 
     def toggle_dark_mode(self, checked):
         assets = ensure_qss_assets()
@@ -3167,73 +2752,42 @@ class AutoTyperApp(QWidget):
             result += sentence_part
         self.set_input_text(result)
 
+    _CODE_EXTENSIONS = frozenset({
+        '.py', '.pyw', '.js', '.jsx', '.ts', '.tsx', '.java', '.c', '.cc', '.cpp', '.h', '.hpp',
+        '.cs', '.go', '.rs', '.swift', '.kt', '.kts', '.m', '.mm', '.php', '.rb', '.sh', '.bash',
+        '.zsh', '.ps1', '.sql', '.toml', '.yaml', '.yml', '.json', '.xml', '.ini', '.cfg', '.gradle',
+    })
+
     def load_text_from_path(self, path):
         try:
+            text = _fi_load(path)
+        except FileIngestionError as exc:
+            QMessageBox.warning(self, "Error", f"Could not open file: {exc}")
+            return
+        try:
             ext = os.path.splitext(path)[1].lower()
-            text = None
-            if ext in ('.html', '.htm'):
-                # Convert HTML to plain text via Qt
-                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                    html = f.read()
-                doc = QTextDocument()
-                doc.setHtml(html)
-                text = doc.toPlainText()
-            elif ext == '.rtf' and platform.system() == "Darwin":
-                # Leverage macOS textutil if available
-                try:
-                    out = subprocess.check_output(["textutil", "-convert", "txt", "-stdout", path])
-                    text = out.decode('utf-8', errors='ignore')
-                except Exception:
-                    text = None
-            if text is None:
-                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                    text = f.read()
-            # Normalize newlines
-            text = text.replace('\r\n', '\n').replace('\r', '\n')
-            try:
-                code_exts = {
-                    '.py', '.pyw', '.js', '.jsx', '.ts', '.tsx', '.java', '.c', '.cc', '.cpp', '.h', '.hpp',
-                    '.cs', '.go', '.rs', '.swift', '.kt', '.kts', '.m', '.mm', '.php', '.rb', '.sh', '.bash',
-                    '.zsh', '.ps1', '.sql', '.toml', '.yaml', '.yml', '.json', '.xml', '.ini', '.cfg', '.gradle',
-                }
-                prefer_code = ext in code_exts
-                if not prefer_code:
-                    prefer_code = bool(text and self._looks_like_code(text))
-                self.input_tabs.setCurrentIndex(1 if prefer_code else 0)
-            except Exception:
-                pass
-            self.set_input_text(text)
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Could not open file: {e}")
+            prefer_code = ext in self._CODE_EXTENSIONS or bool(text and looks_like_code(text))
+            self.input_tabs.setCurrentIndex(1 if prefer_code else 0)
+        except Exception:
+            pass
+        self.set_input_text(text)
 
     def open_file(self):
-        filters = (
-            "All Supported (*.txt *.md *.markdown *.html *.htm *.rtf *.py *.js *.ts *.java *.c *.cpp *.h *.hpp *.cs *.go *.rs *.swift *.kt *.json *.yaml *.yml);;"
-            "Text/Markdown/HTML/RTF (*.txt *.md *.markdown *.html *.htm *.rtf);;"
-            "Code Files (*.py *.js *.ts *.java *.c *.cpp *.h *.hpp *.cs *.go *.rs *.swift *.kt);;"
-            "All Files (*)"
-        )
-        path, _ = QFileDialog.getOpenFileName(self, "Open Text File", "", filters)
-        if not path:
-            return
-        self.load_text_from_path(path)
+        path, _ = QFileDialog.getOpenFileName(self, "Open Text File", "", supported_open_filter())
+        if path:
+            self.load_text_from_path(path)
 
     def save_file(self):
         default_filter = "Text Files (*.txt)" if self.input_mode_name() == "Plain Text" else "Code Files (*.py *.txt)"
         path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save File As...",
-            "",
-            "Text Files (*.txt);;Code Files (*.py *.js *.ts *.java *.c *.cpp *.h *.hpp *.cs *.go *.rs *.swift *.kt);;All Files (*)",
-            default_filter,
+            self, "Save File As...", "", supported_save_filter(), default_filter,
         )
         if not path:
             return
         try:
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(self.get_input_text())
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Could not save file: {e}")
+            _fi_save(self.get_input_text(), path)
+        except FileIngestionError as exc:
+            QMessageBox.warning(self, "Error", f"Could not save file: {exc}")
 
     def load_settings(self):
         if geom := self.settings.value("geometry"):
