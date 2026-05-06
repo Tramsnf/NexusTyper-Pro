@@ -231,15 +231,15 @@ jobs:
         run: choco install innosetup --no-progress -y
 
       - name: Build Setup.exe
-        shell: bash
+        # Run in PowerShell (not bash) — Git Bash's MSYS layer mangles
+        # arguments that start with /D, breaking ISCC's /D<NAME>=<VALUE>
+        # preprocessor switches.
         run: |
-          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
-          "$ISCC" \
-            "/DMyAppVersion=$VERSION" \
-            "/DMyAppVersionNumeric=$VERSION_NUMERIC" \
-            "/DSourceDir=$(pwd -W)/dist/NexusTyper Pro" \
-            "/DOutputDir=$(pwd -W)/dist" \
-            "installers/windows/NexusTyper-Pro.iss"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc `
+            "/DMyAppVersion=$env:VERSION" `
+            "/DMyAppVersionNumeric=$env:VERSION_NUMERIC" `
+            "installers\windows\NexusTyper-Pro.iss"
 
       - name: Sign Setup.exe
         if: env.WINDOWS_PFX_PATH != ''
