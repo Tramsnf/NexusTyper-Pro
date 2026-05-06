@@ -88,13 +88,6 @@ requirements.txt         # Python dependencies
 .github/workflows/       # CI / release automation
 ```
 
-## Author / contact
-
-Author info — including the email and website surfaced in the in-app About
-dialog — lives at the top of [`NexusTyper Pro.py`](NexusTyper%20Pro.py)
-(`APP_AUTHOR`, `CONTACT_EMAIL`, `CONTACT_WEBSITE`). Forks should update those
-constants to point to their own contact details.
-
 ## License
 
 See [`LICENSE`](LICENSE).
