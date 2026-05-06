@@ -196,12 +196,34 @@ page; no GitHub Release is created.
 ## Project structure
 
 ```
-NexusTyper Pro.py        # Single-file PyQt5 app (entry point)
-NexusTyper Pro.spec      # PyInstaller bundle config
-icon.icns / ico*.png     # App icons
-icon.iconset/            # Source PNGs for rebuilding icon.icns
-requirements.txt         # Python dependencies
-.github/workflows/       # CI / release automation
+NexusTyper Pro.py            # Entry point — main window + glue
+NexusTyper Pro.spec          # PyInstaller bundle config
+nexustyper/
+├── constants.py             # APP_NAME / APP_VERSION / hotkeys / URLs
+├── platform/                # OS abstraction (one file per OS)
+│   ├── _macos.py            # AXIsProcessTrusted, NSWorkspace, Option-Hex
+│   ├── _windows.py          # GetForegroundWindow + process-exe identity
+│   └── _linux.py            # pyautogui fallbacks
+├── ui/                      # Dialogs, widgets, theming
+│   ├── theming.py           # Light/dark stylesheets, QSS asset cache
+│   ├── widgets/splitter.py  # Chevron splitter handle + container
+│   └── dialogs/             # About, help, settings, diagnostics
+├── typing/                  # Typing engine
+│   ├── sanitize.py          # Smart-paste cleanup (invisibles, quotes, …)
+│   ├── macros.py            # {{PAUSE}} / {{PRESS}} / {{CLICK}}
+│   ├── mistakes.py          # Keyboard-adjacency typo injection
+│   ├── personas.py          # Deliberate Writer / Fast Messenger / Coder
+│   ├── browser.py           # Active-window-aware optimizer
+│   ├── worker.py            # TypingWorker (QObject)
+│   └── dry_run.py           # DryRunWorker (preview pane)
+└── services/                # Background QObject workers
+    ├── update_checker.py    # GitHub Releases API polling
+    ├── installer_downloader.py  # Asset download w/ progress
+    └── hotkeys.py           # Qt → pynput hotkey translation
+icon.icns / ico*.png         # App icons
+icon.iconset/                # Source PNGs for rebuilding icon.icns
+requirements.txt             # Python dependencies
+.github/workflows/           # CI / release automation
 ```
 
 ## License

@@ -201,6 +201,7 @@ jobs:
             --add-data "ico.png;." `
             --collect-data certifi `
             --hidden-import PyQt5.QtSvg `
+            --collect-submodules nexustyper `
             "NexusTyper Pro.py"
 
       # If a code-signing PFX is available, decode it and sign the .exe with
@@ -313,6 +314,7 @@ jobs:
             --add-data "ico.png:." \
             --collect-data certifi \
             --hidden-import PyQt5.QtSvg \
+            --collect-submodules nexustyper \
             "NexusTyper Pro.py"
 
       - name: Tarball

@@ -10,7 +10,7 @@ PyInstaller flags; this spec is the macOS canonical.
 import os
 import platform
 import re
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
@@ -50,7 +50,7 @@ a = Analysis(
         'pyautogui', 'pynput', 'pyperclip',
         'PyQt5', 'PyQt5.sip', 'PyQt5.QtWidgets',
         'PyQt5.QtGui', 'PyQt5.QtCore', 'PyQt5.QtSvg',
-    ],
+    ] + collect_submodules('nexustyper'),
     hookspath=[],
     runtime_hooks=[],
     excludes=['tkinter'],
