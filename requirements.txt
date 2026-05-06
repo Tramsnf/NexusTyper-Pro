@@ -1,15 +1,18 @@
-# Core GUI
-PyQt5>=5.15,<6
+# Core GUI — pinned to the maintained 5.15 line. PyQt5 itself is in
+# maintenance (no new features), but it's stable and our use is widget-only.
+PyQt5>=5.15.10,<6
 
 # Input automation + clipboard
-pyautogui>=0.9.53
-pynput>=1.7
-pyperclip>=1.8
+pyautogui>=0.9.54,<1
+pynput>=1.7.6,<2
+pyperclip>=1.8.2,<2
 
-# macOS-only — pulled in automatically on Darwin
-pyobjc-core>=10 ; sys_platform == "darwin"
-pyobjc-framework-Cocoa>=10 ; sys_platform == "darwin"
-pyobjc-framework-Quartz>=10 ; sys_platform == "darwin"
+# macOS-only deps. Pulled in automatically on Darwin so cross-platform CI
+# doesn't try to compile them on Linux/Windows.
+pyobjc-core>=10,<13          ; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10,<13 ; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10,<13 ; sys_platform == "darwin"
 
-# Bundling (dev only — install when you want to build a binary)
+# --- Dev / packaging tools (uncomment when building locally) ---
 # pyinstaller>=6.0
+# pillow>=10.0   # only needed by the Windows release workflow to make the .ico

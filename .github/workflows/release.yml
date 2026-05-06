@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual trigger so you can test the build pipeline without cutting a real
+  # release. Tag-pushed runs attach to a GitHub Release; manual runs just
+  # publish the build artifacts on the workflow run page.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -29,21 +33,25 @@ jobs:
         run: pyinstaller "NexusTyper Pro.spec"
 
       - name: Zip the bundle
+        working-directory: dist
         run: |
-          cd dist
-          ditto -c -k --sequesterRsrc --keepParent "NexusTyper Pro.app" "NexusTyper Pro-macOS.zip"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "NexusTyper Pro.app" \
+            "NexusTyper-Pro-${{ github.ref_name }}-macOS.zip"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: NexusTyper-Pro-macOS
-          path: dist/NexusTyper Pro-macOS.zip
+          path: dist/*.zip
 
       - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/NexusTyper Pro-macOS.zip
+          files: dist/*.zip
           generate_release_notes: true
+          draft: false
+          prerelease: false
 
   windows:
     name: Build Windows .exe
@@ -59,26 +67,93 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller pillow
+
+      - name: Convert .icns to .ico for the Windows build
+        run: |
+          python -c "
+          from PIL import Image
+          img = Image.open('icon.iconset/icon_256x256.png')
+          img.save('icon.ico', format='ICO', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])
+          "
 
       - name: Build .exe
         run: |
-          pyinstaller --windowed --name "NexusTyper Pro" `
+          pyinstaller --noconfirm --windowed --clean `
+            --name "NexusTyper Pro" `
+            --icon icon.ico `
             --add-data "ico2.png;." `
-            --add-data "icon.icns;." `
+            --add-data "ico.png;." `
+            --hidden-import PyQt5.QtSvg `
             "NexusTyper Pro.py"
 
       - name: Zip the bundle
-        run: Compress-Archive -Path "dist/NexusTyper Pro/*" -DestinationPath "dist/NexusTyper Pro-Windows.zip"
+        run: |
+          $zip = "dist/NexusTyper-Pro-${{ github.ref_name }}-Windows.zip"
+          Compress-Archive -Path "dist/NexusTyper Pro/*" -DestinationPath $zip
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: NexusTyper-Pro-Windows
-          path: dist/NexusTyper Pro-Windows.zip
+          path: dist/*.zip
 
       - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/NexusTyper Pro-Windows.zip
+          files: dist/*.zip
           generate_release_notes: true
+          draft: false
+          prerelease: false
+
+  linux:
+    name: Build Linux binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          # Runtime libs PyInstaller needs to bundle so the binary launches
+          # on a typical Ubuntu/X11 desktop.
+          sudo apt-get update
+          sudo apt-get install -y \
+            xvfb \
+            libegl1 libxkbcommon0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 libdbus-1-3
+
+      - name: Build binary
+        run: |
+          xvfb-run -a pyinstaller --noconfirm --windowed --clean \
+            --name "NexusTyper-Pro" \
+            --add-data "ico2.png:." \
+            --add-data "ico.png:." \
+            --hidden-import PyQt5.QtSvg \
+            "NexusTyper Pro.py"
+
+      - name: Tarball
+        run: |
+          cd dist
+          tar -czf "NexusTyper-Pro-${{ github.ref_name }}-Linux.tar.gz" "NexusTyper-Pro"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NexusTyper-Pro-Linux
+          path: dist/*.tar.gz
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: false

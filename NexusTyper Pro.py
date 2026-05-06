@@ -201,6 +201,10 @@ APP_COPYRIGHT_YEAR = "2025"
 APP_SIGNATURE = "Automate. Create. Elevate."
 CONTACT_EMAIL = "xx"
 CONTACT_WEBSITE = "https://tramsnf.com"
+# GitHub release feed for the in-app update checker. Forks should change
+# this to point at their own repo or set it to "" to disable the checker.
+UPDATE_FEED_URL = "https://api.github.com/repos/Tramsnf/NexusTyper-Pro/releases/latest"
+UPDATE_DOWNLOAD_PAGE = "https://github.com/Tramsnf/NexusTyper-Pro/releases/latest"
 DEFAULT_MIN_WPM, DEFAULT_MAX_WPM = 80, 120
 MIN_WPM_LIMIT, MAX_WPM_LIMIT = 10, 800
 DEFAULT_LAPS, DEFAULT_DELAY = 1, 3
@@ -2709,6 +2713,72 @@ class ChevronSplitter(QSplitter):
         self.toggleRequested.emit()
 
 
+class UpdateChecker(QObject):
+    """Polls the GitHub Releases API for a newer version.
+
+    Runs in a worker thread so a slow network never blocks startup. Emits
+    `updateAvailable(version, url, body)` when the latest tag on the feed
+    parses to a SemVer greater than ``APP_VERSION``. Emits
+    `checkFailed(reason)` on transport/parse errors so the UI can stay quiet
+    rather than nagging the user. Never raises into Qt.
+    """
+
+    updateAvailable = pyqtSignal(str, str, str)  # version, url, body
+    upToDate = pyqtSignal(str)
+    checkFailed = pyqtSignal(str)
+
+    def __init__(self, feed_url: str, current_version: str, parent=None):
+        super().__init__(parent)
+        self._feed_url = feed_url or ""
+        self._current = current_version
+
+    @staticmethod
+    def _parse_semver(s: str):
+        """Best-effort tuple from "v3.3", "3.3.1", "3.3-beta.2"; returns None
+        if no leading numeric segment exists.
+        """
+        if not s:
+            return None
+        m = re.match(r"v?(\d+)(?:\.(\d+))?(?:\.(\d+))?", s.strip())
+        if not m:
+            return None
+        return tuple(int(g or 0) for g in m.groups())
+
+    @pyqtSlot()
+    def run(self):
+        if not self._feed_url:
+            self.checkFailed.emit("Update feed not configured")
+            return
+        try:
+            import urllib.request
+            import json as _json
+            req = urllib.request.Request(
+                self._feed_url,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": f"{APP_NAME}/{APP_VERSION} (+update-check)",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                payload = _json.loads(resp.read().decode("utf-8", errors="replace"))
+        except Exception as e:
+            self.checkFailed.emit(f"Update check failed: {e}")
+            return
+
+        latest_tag = (payload.get("tag_name") or payload.get("name") or "").strip()
+        download_url = (payload.get("html_url") or UPDATE_DOWNLOAD_PAGE).strip()
+        body = (payload.get("body") or "").strip()
+        latest = self._parse_semver(latest_tag)
+        current = self._parse_semver(self._current)
+        if not latest or not current:
+            self.checkFailed.emit(f"Could not parse versions ({latest_tag!r} vs {self._current!r})")
+            return
+        if latest > current:
+            self.updateAvailable.emit(latest_tag.lstrip("v"), download_url, body)
+        else:
+            self.upToDate.emit(latest_tag.lstrip("v"))
+
+
 class AutoTyperApp(QWidget):
     start_typing_signal = pyqtSignal()
     stop_typing_signal = pyqtSignal()
@@ -2747,7 +2817,15 @@ class AutoTyperApp(QWidget):
                 print(f"PyAutoGUI check failed (expected if permissions are not set): {e}")
 
         self.check_macos_permissions() # Your existing informational QMessageBox
-    
+
+        # Background update check — fires at most once a day, silent unless
+        # an update is available. Delayed a few seconds so we never block
+        # the first paint on a slow network.
+        try:
+            QTimer.singleShot(2500, lambda: self._start_update_check(verbose=False))
+        except Exception:
+            pass
+
     def _translate_hotkey_for_pynput(self, hotkey):
         """Translates a Qt hotkey (QKeySequence text) to pynput GlobalHotKeys format."""
         if not hotkey:
@@ -2925,6 +3003,9 @@ class AutoTyperApp(QWidget):
         diagnostics_action = QAction('&Diagnostics...', self)
         diagnostics_action.triggered.connect(self.show_diagnostics_dialog)
         help_menu.addAction(diagnostics_action)
+        check_update_action = QAction('Check for &Updates…', self)
+        check_update_action.triggered.connect(lambda: self._start_update_check(verbose=True))
+        help_menu.addAction(check_update_action)
         
         open_action = QAction('&Open...', self)
         open_action.triggered.connect(self.open_file)
@@ -4931,6 +5012,81 @@ class AutoTyperApp(QWidget):
             except Exception:
                 pass
         self.hotkey_listener = None
+
+    # --- In-app update checker ---
+    def _start_update_check(self, verbose: bool = False):
+        """Spin up a worker thread that pings the GitHub Releases feed.
+
+        Background (verbose=False) checks fire at most once a day and stay
+        silent unless an update is available. The Help → Check for Updates
+        action passes verbose=True so it always reports status.
+        """
+        if not UPDATE_FEED_URL:
+            if verbose:
+                QMessageBox.information(self, "Updates",
+                                        "Update checks are not configured for this build.")
+            return
+        # Throttle background checks. Manual checks bypass the throttle.
+        if not verbose:
+            try:
+                last = float(self.settings.value("updateCheckLastEpoch", 0.0))
+            except Exception:
+                last = 0.0
+            if (time.time() - last) < 86400:
+                return
+        existing = getattr(self, "_update_thread", None)
+        if existing is not None and existing.isRunning():
+            return
+        self._update_verbose = bool(verbose)
+        self._update_worker = UpdateChecker(UPDATE_FEED_URL, APP_VERSION)
+        self._update_thread = QThread(self)
+        self._update_worker.moveToThread(self._update_thread)
+        self._update_thread.started.connect(self._update_worker.run)
+        self._update_worker.updateAvailable.connect(self._on_update_available)
+        self._update_worker.upToDate.connect(self._on_update_up_to_date)
+        self._update_worker.checkFailed.connect(self._on_update_failed)
+        for sig in (self._update_worker.updateAvailable,
+                    self._update_worker.upToDate,
+                    self._update_worker.checkFailed):
+            sig.connect(self._update_thread.quit)
+        self._update_thread.finished.connect(self._update_thread.deleteLater)
+        self._update_thread.start()
+        self.settings.setValue("updateCheckLastEpoch", time.time())
+
+    def _on_update_available(self, version, url, body):
+        try:
+            logger.info(f"Update available: {version} (current {APP_VERSION})")
+        except Exception:
+            pass
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Update available")
+        msg.setIcon(QMessageBox.Information)
+        msg.setText(f"<b>{APP_NAME} {version}</b> is available. You're on {APP_VERSION}.")
+        if body:
+            short = body if len(body) < 600 else body[:600] + "…"
+            msg.setInformativeText(short)
+        download_btn = msg.addButton("Open download page", QMessageBox.AcceptRole)
+        msg.addButton("Later", QMessageBox.RejectRole)
+        msg.exec_()
+        if msg.clickedButton() is download_btn:
+            try:
+                QDesktopServices.openUrl(QUrl(url or UPDATE_DOWNLOAD_PAGE))
+            except Exception:
+                pass
+
+    def _on_update_up_to_date(self, version):
+        if getattr(self, "_update_verbose", False):
+            QMessageBox.information(
+                self, "Up to date",
+                f"You're running the latest release ({APP_VERSION}).")
+
+    def _on_update_failed(self, reason):
+        try:
+            logger.info(f"Update check: {reason}")
+        except Exception:
+            pass
+        if getattr(self, "_update_verbose", False):
+            QMessageBox.warning(self, "Update check failed", reason)
         # Join briefly so restarts are reliable (especially for modeless dialogs).
         if self.hotkey_listener_thread and self.hotkey_listener_thread.is_alive():
             try:

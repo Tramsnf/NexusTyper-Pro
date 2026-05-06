@@ -66,16 +66,44 @@ pyinstaller --windowed --name "NexusTyper Pro" \
     --add-data "ico2.png:." --icon icon.icns "NexusTyper Pro.py"
 ```
 
-## Releases
+## Distribution & releases
 
-Tagged commits (`v3.x`) trigger
-[`.github/workflows/release.yml`](.github/workflows/release.yml), which builds
-the macOS bundle and attaches it to a GitHub Release. To cut a release:
+End users grab the latest installable from the **Releases** page on GitHub:
+<https://github.com/Tramsnf/NexusTyper-Pro/releases/latest>. Each release ships
+three artifacts:
+
+| Platform | File | How to run |
+|---|---|---|
+| macOS    | `NexusTyper-Pro-vX.Y-macOS.zip`   | Unzip → first launch: right-click `NexusTyper Pro.app` → **Open** (the app is unsigned; macOS asks once). Grant Accessibility + Input Monitoring when prompted. |
+| Windows  | `NexusTyper-Pro-vX.Y-Windows.zip` | Unzip → run `NexusTyper Pro.exe`. |
+| Linux    | `NexusTyper-Pro-vX.Y-Linux.tar.gz`| `tar -xzf … && ./NexusTyper-Pro/NexusTyper-Pro` |
+
+### How updates reach users
+
+The app pings GitHub's Releases API at startup (and on demand from
+**Help → Check for Updates…**). When a newer `tag_name` than `APP_VERSION`
+appears, a non-blocking dialog shows the new version's notes with an
+*Open download page* button. Background checks fire at most once a day; the
+manual menu action bypasses the throttle. Configure or disable the checker
+by changing `UPDATE_FEED_URL` near the top of
+[`NexusTyper Pro.py`](NexusTyper%20Pro.py) (set to `""` to disable).
+
+### Cutting a release
+
+Bump `APP_VERSION` in `NexusTyper Pro.py`, commit, then push a matching
+`v*` tag. The workflow builds macOS/Windows/Linux artifacts in parallel and
+attaches them to a GitHub Release with auto-generated notes:
 
 ```bash
+# Edit APP_VERSION = "3.4" in the source first, commit, then:
 git tag v3.4
 git push origin v3.4
 ```
+
+You can also test the build pipeline without cutting a release — push the
+**Run workflow** button on the **Release** action page (the workflow listens
+for `workflow_dispatch`). Manual runs just publish artifacts on the run
+page; no GitHub Release is created.
 
 ## Project structure
 
