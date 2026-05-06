@@ -194,8 +194,25 @@ class TypingWorker(QObject):
         return self._pause_total
 
     def _auto_resume_checker(self):
-        """Monitors active window and resumes typing if focus returns."""
-        time.sleep(0.5)  # Prevent instant resume on quick window switches
+        """Monitors active window and resumes typing if focus returns.
+
+        Sleeps in short slices and rechecks ``self._running`` between each
+        slice so a stop signal lands within ~50 ms instead of up to a full
+        second. Prevents the checker from calling ``self.resume()`` after
+        the worker has already been torn down.
+        """
+        def _short_sleep(total: float) -> bool:
+            """Sleep up to ``total`` seconds, breaking early if stopped or unpaused.
+            Returns True if the loop should continue, False to exit."""
+            end = time.time() + max(0.0, total)
+            while time.time() < end:
+                if not (self._paused and self._running):
+                    return False
+                time.sleep(0.05)
+            return True
+
+        if not _short_sleep(0.5):  # Prevent instant resume on quick window switches
+            return
         while self._paused and self._running:
             try:
                 if self.get_active_window_identity() == self.initial_window_identity:
@@ -209,14 +226,16 @@ class TypingWorker(QObject):
                             self.update_status.emit(f"Resuming in {i}…")
                         except Exception:
                             pass
-                        time.sleep(1)
+                        if not _short_sleep(1.0):
+                            return
                     else:
                         if self.get_active_window_identity() == self.initial_window_identity:
                             self.resume()
                             break
             except Exception:
                 pass  # Ignore errors (e.g., window closed)
-            time.sleep(0.2)
+            if not _short_sleep(0.2):
+                return
 
     def get_active_window_title(self):
         try:
@@ -366,17 +385,25 @@ class TypingWorker(QObject):
         return False
 
     def _sleep_interruptible(self, duration):
-        """Sleep in small chunks while honoring stop/pause."""
-        end = time.time() + max(0.0, duration)
-        while self._running:
+        """Sleep in small chunks while honoring stop/pause.
+
+        Tracks remaining time *as duration*, not as an absolute deadline,
+        so a long pause doesn't make the function return immediately on
+        resume (which would drop the inter-keystroke delay).
+        """
+        remaining = max(0.0, duration)
+        last_tick = time.time()
+        while self._running and remaining > 0:
             if not self.pause_event.is_set():
-                # Block during pauses without busy-waiting.
+                # Block during pauses without busy-waiting; don't bill the
+                # paused interval against the remaining budget.
                 self.pause_event.wait(timeout=0.1)
+                last_tick = time.time()
                 continue
-            remaining = end - time.time()
-            if remaining <= 0:
-                break
-            time.sleep(0.02 if remaining > 0.02 else max(0.0, remaining))
+            slice_ = min(0.02, remaining)
+            time.sleep(max(0.0, slice_))
+            remaining -= time.time() - last_tick
+            last_tick = time.time()
 
     def _mouse_jitter_thread(self):
         # Moves mouse slightly at random intervals to simulate activity
@@ -785,16 +812,20 @@ class TypingWorker(QObject):
                                 try:
                                     pyautogui.hotkey('shift', 'tab')
                                 except Exception:
+                                    # Fallback: explicit down/up so a hotkey
+                                    # incompatibility doesn't kill the dedent.
+                                    # try/finally guarantees shift is released
+                                    # even if press('tab') raises mid-flight,
+                                    # which otherwise leaves shift latched and
+                                    # corrupts every subsequent keystroke.
                                     try:
                                         pyautogui.keyDown('shift')
-                                        pyautogui.press('tab')
-                                        pyautogui.keyUp('shift')
+                                        try:
+                                            pyautogui.press('tab')
+                                        finally:
+                                            pyautogui.keyUp('shift')
                                     except Exception:
                                         break
-                                try:
-                                    pyautogui.keyUp('shift')
-                                except Exception:
-                                    pass
                                 self._sleep_interruptible(0.03)
                             virtual_level = desired_level
 

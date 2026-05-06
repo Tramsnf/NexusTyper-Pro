@@ -64,7 +64,10 @@ class DryRunDialog(QDialog):
             mode = 'Paste Mode'
         self.view.clear()
         self.code_editor.clear()
-        self.thread = QThread()
+        # Parent the thread to the dialog so its lifetime is bound to ours
+        # — otherwise close-while-running leaks the QThread until Python GC,
+        # which can crash on shutdown.
+        self.thread = QThread(self)
         self.worker = DryRunWorker(
             text,
             p.laps_spin.value(),
@@ -94,6 +97,23 @@ class DryRunDialog(QDialog):
 
     def reset_editor(self):
         self.code_editor.clear()
+
+    def closeEvent(self, event):
+        """Stop the worker and join its thread on close.
+
+        Without this, a dialog closed mid-run leaks the QThread until
+        Python's GC catches up — which can crash at shutdown when Qt is
+        already torn down.
+        """
+        try:
+            if self.worker:
+                self.worker.stop()
+            if self.thread and self.thread.isRunning():
+                self.thread.quit()
+                self.thread.wait(2000)
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     def on_char(self, ch: str):
         # Send to text preview

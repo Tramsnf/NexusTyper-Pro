@@ -50,7 +50,7 @@ _AI_PUNCT_TABLE = str.maketrans({
     ' ': '\n',  # PARAGRAPH SEPARATOR
     '“': '"', '”': '"',  # curly double quotes
     '‘': "'", '’': "'",  # curly single quotes
-    '‚': ',', '„': ',,',  # low-9 quotes
+    '‚': ',', '„': '"',  # low-9 quotes — single low-9 → comma, double low-9 → straight quote
     '′': "'", '″': '"',  # prime, double prime
     '–': '-',                  # en dash
     '—': '--',                 # em dash

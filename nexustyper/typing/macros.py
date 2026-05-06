@@ -117,7 +117,8 @@ def execute_macro(
     if command == 'PAUSE':
         sleep_fn(float(params))
     elif command == 'PRESS':
-        pyautogui.press(params.lower().strip())
+        # validate_macro already lower()/strip()-ed the key name
+        pyautogui.press(params)
     elif command == 'CLICK':
         x, y = params.split(',')
         pyautogui.click(int(x), int(y))

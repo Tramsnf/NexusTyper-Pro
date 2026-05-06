@@ -22,9 +22,9 @@ class PasteCleaningTextEdit(QTextEdit):
         try:
             # Prefer HTML conversion when available to preserve logical breaks
             if hasattr(source, 'hasHtml') and source.hasHtml():
-                html = source.html()
+                html_payload = source.html()
                 doc = QTextDocument()
-                doc.setHtml(html)
+                doc.setHtml(html_payload)
                 text = doc.toPlainText()
             elif source.hasText():
                 text = source.text()
@@ -98,9 +98,9 @@ class CodeEditor(QPlainTextEdit):
     def insertFromMimeData(self, source):
         try:
             if hasattr(source, "hasHtml") and source.hasHtml():
-                html = source.html()
+                html_payload = source.html()
                 doc = QTextDocument()
-                doc.setHtml(html)
+                doc.setHtml(html_payload)
                 text = doc.toPlainText()
             elif source.hasText():
                 text = source.text()

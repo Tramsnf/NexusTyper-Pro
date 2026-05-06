@@ -84,6 +84,14 @@ class UpdateChecker(QObject):
         if not assets:
             return None
         sysname = platform.system()
+        # Map machine() to the .deb-style architecture string the release
+        # workflow uses. Falls back to 'amd64' on unknown machines so the
+        # default still picks up the standard Intel .deb.
+        deb_arch = {
+            "x86_64": "amd64", "amd64": "amd64",
+            "aarch64": "arm64", "arm64": "arm64",
+            "armv7l": "armhf",
+        }.get(platform.machine().lower(), "amd64")
         for a in assets:
             name = (a.get("name") or "").lower()
             url = a.get("browser_download_url")
@@ -94,7 +102,7 @@ class UpdateChecker(QObject):
                 return {"url": url, "name": a["name"], "size": size}
             if sysname == "Windows" and name.endswith(".exe") and "setup" in name:
                 return {"url": url, "name": a["name"], "size": size}
-            if sysname == "Linux" and name.endswith(".deb"):
+            if sysname == "Linux" and name.endswith(f"_{deb_arch}.deb"):
                 return {"url": url, "name": a["name"], "size": size}
         return None
 

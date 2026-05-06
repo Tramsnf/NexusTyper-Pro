@@ -1,5 +1,6 @@
 import os
 import sys
+import atexit
 import faulthandler
 
 # faulthandler defaults to writing crash tracebacks to sys.stderr, which is
@@ -13,6 +14,8 @@ try:
     os.makedirs(os.path.dirname(_FAULTHANDLER_LOG), exist_ok=True)
     _FAULTHANDLER_FILE = open(_FAULTHANDLER_LOG, 'a', buffering=1)
     faulthandler.enable(file=_FAULTHANDLER_FILE)
+    # Close the handle on clean exit so Windows can rotate the log file.
+    atexit.register(_FAULTHANDLER_FILE.close)
 except OSError:
     pass
 
@@ -2136,6 +2139,8 @@ class AutoTyperApp(QWidget):
         self.start_listener()
 
     def show_settings_dialog(self):
+        # Stop the listener before the dialog so user-typed shortcuts in the
+        # capture widget aren't intercepted as global hotkeys.
         self.stop_listener()
         dialog = SettingsDialog(
             settings=self.settings,
@@ -2144,15 +2149,17 @@ class AutoTyperApp(QWidget):
             default_resume_hotkey=DEFAULT_RESUME_HOTKEY,
             parent=self,
         )
-        result = dialog.exec_()
-        self.start_listener()
-
-        if result == QDialog.Accepted:
+        accepted = dialog.exec_() == QDialog.Accepted
+        if accepted:
             self.update_button_hotkey_text()
-            # NOW we can safely show the confirmation message
-            self.stop_listener()
-            QMessageBox.information(self, "Settings Saved", "Hotkey settings have been updated and the listener was restarted.")
-            self.start_listener()
+            QMessageBox.information(
+                self, "Settings Saved",
+                "Hotkey settings have been updated and the listener was restarted.",
+            )
+        # start_listener() always rebuilds from the current QSettings, so a
+        # single call after the dialog correctly binds whichever hotkeys are
+        # now in effect (saved on Accept, unchanged on Cancel).
+        self.start_listener()
 
     def show_help_dialog(self):
         self.stop_listener()
