@@ -210,7 +210,7 @@ except ImportError as e:
 
 # --- Constants & App Info ---
 APP_NAME = "NexusTyper Pro"
-APP_VERSION = "3.3"
+APP_VERSION = "3.4"
 APP_AUTHOR = "TramsNF"
 APP_COPYRIGHT_YEAR = "2025"
 APP_SIGNATURE = "Automate. Create. Elevate."
@@ -924,7 +924,10 @@ class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"About {APP_NAME}")
-        self.setFixedSize(480, 250)
+        # Use a minimum size, not a fixed one — Windows and high-DPI displays
+        # render the same text wider than macOS, and setFixedSize was clipping
+        # the rich-text body and the contact link.
+        self.setMinimumSize(540, 320)
         main_layout = QHBoxLayout(self)
         self.image_label = QLabel()
         if hasattr(sys, '_MEIPASS'):
@@ -937,15 +940,22 @@ class AboutDialog(QDialog):
             pixmap = QPixmap(128, 128)
             pixmap.fill(Qt.gray)
         self.image_label.setPixmap(pixmap.scaled(128, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.image_label.setAlignment(Qt.AlignTop)
         main_layout.addWidget(self.image_label)
         right_layout = QVBoxLayout()
         right_layout.addWidget(QLabel(f"<b>{APP_NAME}</b>"))
         right_layout.addWidget(QLabel(f"Version {APP_VERSION}"))
         right_layout.addWidget(QLabel(f"Copyright © {APP_COPYRIGHT_YEAR} {APP_AUTHOR}"))
-        details_text = QTextEdit()
-        details_text.setReadOnly(True)
-        details_text.setHtml(f"Designed and Developed by <b>{APP_AUTHOR}</b>.<br><br>"
-                            f"For more information, contact:<br><a href='mailto:{CONTACT_EMAIL}'>{CONTACT_EMAIL}</a>")
+        # QLabel auto-sizes to its rich-text content. The previous QTextEdit
+        # forced an internal scroll region that clipped the short body text.
+        details = QLabel(
+            f"Designed and Developed by <b>{APP_AUTHOR}</b>.<br><br>"
+            f"For more information, contact:<br>"
+            f"<a href='mailto:{CONTACT_EMAIL}'>{CONTACT_EMAIL}</a>"
+        )
+        details.setWordWrap(True)
+        details.setOpenExternalLinks(True)
+        details.setTextInteractionFlags(Qt.TextBrowserInteraction)
         link_label = QLabel(f"<a href='{CONTACT_WEBSITE}'>{CONTACT_WEBSITE}</a>")
         link_label.setOpenExternalLinks(True)
         ok_button = QPushButton("OK")
@@ -953,7 +963,7 @@ class AboutDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         button_layout.addWidget(ok_button)
-        right_layout.addWidget(details_text)
+        right_layout.addWidget(details)
         right_layout.addWidget(link_label, 0, Qt.AlignLeft)
         right_layout.addStretch()
         right_layout.addLayout(button_layout)
@@ -3192,9 +3202,10 @@ class AutoTyperApp(QWidget):
         self.settings_scroll.setFrameShape(QFrame.NoFrame)
         try:
             self.settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            # Soft minimum so tab labels stay legible, but not so wide that the
-            # sidebar can't be shrunk or collapsed via the splitter.
-            self.settings_scroll.setMinimumWidth(260)
+            # Soft minimum so the longest checkbox labels stay legible without
+            # clipping. Windows fonts (Segoe UI) render wider than macOS at the
+            # same point size, so this value is sized for the worst case.
+            self.settings_scroll.setMinimumWidth(320)
         except Exception:
             pass
         settings_container = QWidget(self.settings_scroll)
