@@ -48,6 +48,10 @@ dist/
 !.env.example
 *.pem
 *.key
+*.pfx
+*.p12
+*.cer
+*.mobileprovision
 
 # --- Project scratch / backup files ---
 NexusTyper Pro copy.py

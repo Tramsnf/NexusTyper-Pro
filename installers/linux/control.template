@@ -1,0 +1,12 @@
+Package: nexustyper-pro
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: libc6, libegl1, libxkbcommon0, libxcb-icccm4, libxcb-image0, libxcb-keysyms1, libxcb-randr0, libxcb-render-util0, libxcb-shape0, libxcb-xinerama0, libxcb-xkb1, libxkbcommon-x11-0, libdbus-1-3
+Maintainer: NexusTyper <noreply@nexustyper.invalid>
+Homepage: https://github.com/Tramsnf/NexusTyper-Pro
+Description: Human-like typing automation
+ NexusTyper Pro types text into any window with human-like pacing,
+ configurable mistakes, and macros. Built with PyQt5; supports global
+ hotkeys, macros, personas, and a dry-run preview mode.

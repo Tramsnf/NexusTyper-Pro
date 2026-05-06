@@ -69,38 +69,94 @@ pyinstaller --windowed --name "NexusTyper Pro" \
 ## Distribution & releases
 
 End users grab the latest installable from the **Releases** page on GitHub:
-<https://github.com/Tramsnf/NexusTyper-Pro/releases/latest>. Each release ships
-three artifacts:
+<https://github.com/Tramsnf/NexusTyper-Pro/releases/latest>. Each release
+ships an installer **and** a portable archive per platform — pick the one
+that fits your situation:
 
-| Platform | File | How to run |
+| Platform | Recommended (installer) | Portable fallback |
 |---|---|---|
-| macOS    | `NexusTyper-Pro-vX.Y-macOS.zip`   | See [macOS first-run notes](#macos-first-run-notes) below. |
-| Windows  | `NexusTyper-Pro-vX.Y-Windows.zip` | Unzip → run `NexusTyper Pro.exe`. SmartScreen may warn the first time; click **More info** → **Run anyway**. |
-| Linux    | `NexusTyper-Pro-vX.Y-Linux.tar.gz`| `tar -xzf NexusTyper-Pro-*-Linux.tar.gz && ./NexusTyper-Pro/NexusTyper-Pro` |
+| macOS    | `NexusTyper-Pro-vX.Y-macOS.pkg` — double-click, run through Apple Installer. | `NexusTyper-Pro-vX.Y-macOS.zip` — drag the `.app` to *Applications*. |
+| Windows  | `NexusTyper-Pro-vX.Y-Windows-Setup.exe` — Inno Setup wizard. | `NexusTyper-Pro-vX.Y-Windows.zip` — run `NexusTyper Pro.exe` from the extracted folder. |
+| Linux    | `nexustyper-pro_X.Y_amd64.deb` — `sudo apt install ./nexustyper-pro_*.deb`. | `NexusTyper-Pro-vX.Y-Linux.tar.gz` — `tar -xzf … && ./NexusTyper-Pro/NexusTyper-Pro`. |
 
-#### macOS first-run notes
+The installers register the app with the OS (Start menu / Launchpad / app
+launcher), which means **future launches don't trigger the OS "unverified
+developer" warnings** — those only fire on the installer itself, once. The
+portable archives are simpler, but the warning will appear every time you
+launch from the extracted folder until the binary gets signed.
 
-The bundle is **ad-hoc signed but not notarized** — it has a valid signature
-(so it launches on Apple Silicon), but Apple has no record of the developer,
-so Gatekeeper will warn on first open. Pick the option that works for you:
+### First-run notes per platform
 
-1. **Easiest** — right-click (or Control-click) `NexusTyper Pro.app` →
-   **Open** → confirm the warning dialog. macOS remembers the override and
-   subsequent launches don't prompt.
-2. **If macOS says "damaged" or won't open after #1** — open Terminal in the
-   folder containing the .app and run:
-   ```bash
-   xattr -cr "NexusTyper Pro.app"
-   ```
-   That strips the `com.apple.quarantine` attribute Safari/Chrome attached
-   when you downloaded the zip.
-3. **System Settings path** — try to launch normally, get blocked, then go
-   to **System Settings → Privacy & Security**, scroll to the message
-   about NexusTyper Pro, and click **Open Anyway**.
+#### macOS
+
+Releases are currently **ad-hoc signed but not notarized**. On macOS 15
+(Sequoia) and later, Apple removed the right-click → *Open* shortcut for
+unverified apps, so the path is:
+
+1. Double-click `NexusTyper-Pro-…macOS.pkg`. macOS will block it with
+   *"Apple could not verify…"*.
+2. Open **System Settings → Privacy & Security**, scroll down, find the
+   blocked-app notice, and click **Open Anyway**.
+3. Re-run the .pkg; this time the confirm dialog has an **Open** button.
+   Apple Installer takes over and lands the app in `/Applications`.
+4. Launch from Launchpad — this works without further prompts because the
+   system installer doesn't propagate the download quarantine.
+
+If you used the **portable .zip** instead and macOS says the .app is
+"damaged" or refuses to launch, open Terminal in the folder containing the
+.app and run:
+```bash
+xattr -cr "NexusTyper Pro.app"
+```
+That strips the `com.apple.quarantine` attribute Safari/Chrome attached
+when you downloaded.
 
 After first launch, macOS will prompt you to grant **Accessibility** and
 **Input Monitoring** in *System Settings → Privacy & Security*. Both are
 required for the app to send keystrokes to other windows.
+
+#### Windows
+
+The installer (and the portable .exe) is unsigned, so Windows will warn
+once. With the installer:
+
+1. Double-click `NexusTyper-Pro-…Setup.exe`. SmartScreen may show
+   *"Windows protected your PC"* — click **More info → Run anyway**.
+2. Walk through the wizard. Choose per-user install if you don't want a
+   UAC prompt.
+3. Launch from the Start menu — no further warnings.
+
+If you instead use the portable .zip and Windows shows the **"We can't
+verify who created this file"** dialog every time, that's *Mark of the
+Web* attached to every extracted file. Right-click the .exe →
+**Properties** → tick **Unblock** at the bottom, or run
+`Get-ChildItem -Recurse | Unblock-File` in the extracted folder from
+PowerShell. The installer path avoids this entirely.
+
+#### Linux
+
+`.deb` installs to `/opt/nexustyper-pro/`, registers a launcher in your app
+menu, and pulls Qt/X11 runtime deps from your distro:
+```bash
+sudo apt install ./nexustyper-pro_*.deb
+nexustyper-pro            # also on $PATH
+```
+The portable tarball just unpacks anywhere and runs in place; useful on
+non-Debian distros.
+
+### Code-signing & notarization (optional)
+
+The release workflow automatically signs and notarizes when the
+corresponding repository **secrets** are set, and silently falls back to
+unsigned builds when they're absent. To enable signing, add these secrets
+under **Settings → Secrets and variables → Actions**:
+
+| Secret | Used for |
+|---|---|
+| `WINDOWS_PFX_BASE64` / `WINDOWS_PFX_PASSWORD` | Authenticode-sign `NexusTyper Pro.exe` and `Setup.exe` |
+| `APPLE_APPLICATION_CERT_BASE64` / `APPLE_INSTALLER_CERT_BASE64` / `APPLE_CERT_PASSWORD` | Developer ID signing for the .app and .pkg |
+| `APPLE_DEVELOPER_ID_APPLICATION` / `APPLE_DEVELOPER_ID_INSTALLER` | Full identity strings, e.g. `Developer ID Application: Jane Doe (TEAMID)` |
+| `NOTARIZE_APPLE_ID` / `NOTARIZE_APPLE_PASSWORD` / `NOTARIZE_TEAM_ID` | `xcrun notarytool` credentials (use an app-specific password) |
 
 ### How updates reach users
 

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=NexusTyper Pro
+GenericName=Typing Automation
+Comment=Type text into any window with human-like pacing
+Exec=/opt/nexustyper-pro/NexusTyper-Pro %F
+Icon=nexustyper-pro
+Terminal=false
+Categories=Utility;Office;
+StartupNotify=true
+Keywords=typing;automation;keyboard;macro;
