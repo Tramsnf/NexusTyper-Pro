@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Opt JS actions onto Node.js 24 ahead of GitHub's June 2026 forced flip.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   syntax:
     name: Syntax + import check

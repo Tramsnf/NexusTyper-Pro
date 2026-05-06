@@ -12,6 +12,13 @@ on:
 permissions:
   contents: write
 
+# Opt the existing JS actions (checkout@v4, setup-python@v5, upload-artifact@v4,
+# action-gh-release@v2) onto Node.js 24 now, ahead of GitHub's June 2026 forced
+# flip. This silences the deprecation warning without bumping action major
+# versions blindly.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   macos:
     name: Build macOS .app
