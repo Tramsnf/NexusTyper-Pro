@@ -113,7 +113,9 @@ when you downloaded.
 
 After first launch, macOS will prompt you to grant **Accessibility** and
 **Input Monitoring** in *System Settings → Privacy & Security*. Both are
-required for the app to send keystrokes to other windows.
+required for the app to send keystrokes to other windows. If Accessibility
+is missing, NexusTyper Pro now blocks a typing run and opens the right
+privacy pane instead of silently doing nothing.
 
 #### Windows
 
@@ -162,10 +164,14 @@ under **Settings → Secrets and variables → Actions**:
 
 The app pings GitHub's Releases API at startup (and on demand from
 **Help → Check for Updates…**). When a newer `tag_name` than `APP_VERSION`
-appears, a non-blocking dialog shows the new version's notes with an
-*Open download page* button. Background checks fire at most once a day; the
-manual menu action bypasses the throttle. Configure or disable the checker
-by changing `UPDATE_FEED_URL` near the top of
+appears, a non-blocking dialog shows the new version's notes with a
+*Download & install* button — that streams the OS-appropriate installer
+(`.pkg` / `Setup.exe` / `.deb`) to your Downloads folder with a progress
+bar, then hands it to the system installer so you only have to click
+through the wizard. The dialog also keeps an *Open download page* fallback
+for releases that ship only portable archives. Background checks fire at
+most once a day; the manual menu action bypasses the throttle. Configure
+or disable the checker by changing `UPDATE_FEED_URL` near the top of
 [`NexusTyper Pro.py`](NexusTyper%20Pro.py) (set to `""` to disable).
 
 ### Cutting a release

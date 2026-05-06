@@ -26,6 +26,10 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - AI-paste artifact sanitization at high WPM ([5b7230f]).
 - Shift-state races during fast typing ([5b7230f]).
+- Windows focus locking no longer pauses after the first word when target
+  apps mutate their window titles while text is being typed.
+- macOS typing now blocks with an Accessibility-permission prompt instead of
+  silently running when the installed app cannot send keystrokes.
 
 ## [3.3] — 2025-04-21
 

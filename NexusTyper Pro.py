@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox, QComboBox, QInputDialog, QTabWidget, QKeySequenceEdit,
     QFormLayout, QGroupBox, QRadioButton, QPlainTextEdit, QCompleter,
     QSplitter, QSplitterHandle, QScrollArea, QToolButton, QStyle, QGridLayout,
-    QFrame, QSizePolicy
+    QFrame, QSizePolicy, QProgressDialog
 )
 from PyQt5.QtCore import (
     Qt, pyqtSignal, QObject, QThread, QSettings, QEvent, QUrl, QStringListModel,
@@ -204,13 +204,14 @@ try:
     import pyperclip
     if platform.system() == "Darwin":
         import AppKit
+        import Quartz
 except ImportError as e:
     print(f"Error: A required library is missing (e.g., pyautogui, pynput, pyperclip). Please install it. {e}")
     sys.exit(1)
 
 # --- Constants & App Info ---
 APP_NAME = "NexusTyper Pro"
-APP_VERSION = "3.4"
+APP_VERSION = "3.5"
 APP_AUTHOR = "TramsNF"
 APP_COPYRIGHT_YEAR = "2025"
 APP_SIGNATURE = "Automate. Create. Elevate."
@@ -236,6 +237,119 @@ else:
     DEFAULT_START_HOTKEY = "Ctrl+Alt+S"
     DEFAULT_STOP_HOTKEY = "Ctrl+Alt+X"
     DEFAULT_RESUME_HOTKEY = "Ctrl+Alt+R"
+
+MACOS_ACCESSIBILITY_SETTINGS_URL = (
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+)
+
+
+def macos_accessibility_trusted(prompt=False) -> bool:
+    """Return whether macOS has granted Accessibility control to this app."""
+    if platform.system() != "Darwin":
+        return True
+    try:
+        if prompt:
+            options = {Quartz.kAXTrustedCheckOptionPrompt: True}
+            return bool(Quartz.AXIsProcessTrustedWithOptions(options))
+        return bool(Quartz.AXIsProcessTrusted())
+    except Exception:
+        try:
+            logger.exception("Could not read macOS Accessibility trust status")
+        except Exception:
+            pass
+        # Fail open if the OS/framework probe itself fails; typing errors will
+        # still surface through the normal worker exception path.
+        return True
+
+
+def windows_foreground_window_identity():
+    """Stable foreground-window identity for Windows focus locking.
+
+    Window titles often mutate while text is being typed ("dirty" markers,
+    browser tab titles, editor state). The top-level HWND stays stable for the
+    focused control, so use it with the process name instead of title text.
+    """
+    if platform.system() != "Windows":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+
+        hwnd = user32.GetForegroundWindow()
+        hwnd_value = int(getattr(hwnd, "value", hwnd) or 0)
+        if not hwnd_value:
+            return None
+
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+
+        process_name = None
+        if pid.value:
+            process_name = windows_process_name_for_pid(pid.value)
+
+        if process_name:
+            return f"{process_name}:{hwnd_value:x}"
+        return f"hwnd:{hwnd_value:x}"
+    except Exception:
+        return None
+
+
+def windows_process_name_for_pid(pid):
+    if platform.system() != "Windows":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = [
+            wintypes.DWORD,
+            wintypes.BOOL,
+            wintypes.DWORD,
+        ]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.QueryFullProcessImageNameW.argtypes = [
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        process_query_limited_information = 0x1000
+        handle = kernel32.OpenProcess(
+            process_query_limited_information,
+            False,
+            int(pid),
+        )
+        if not handle:
+            return None
+        try:
+            size = wintypes.DWORD(32768)
+            buffer = ctypes.create_unicode_buffer(size.value)
+            if kernel32.QueryFullProcessImageNameW(
+                handle,
+                0,
+                buffer,
+                ctypes.byref(size),
+            ):
+                return os.path.basename(buffer.value).lower()
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return None
+    return None
 
 # Keyboard adjacency map for simulating realistic typing mistakes
 KEY_ADJACENCY = {
@@ -1130,6 +1244,10 @@ class DiagnosticsDialog(QDialog):
                 f"Log file: {LOG_FILE}",
                 f"Log dir: {LOG_DIR}",
             ]
+            if platform.system() == "Darwin":
+                lines.append(
+                    f"macOS Accessibility trusted: {macos_accessibility_trusted(prompt=False)}"
+                )
             self.info.setPlainText("\n".join(lines))
         except Exception as e:
             self.info.setPlainText(f"Failed to gather diagnostics: {e}")
@@ -1250,6 +1368,7 @@ class TypingWorker(QObject):
         self.add_mistakes = kwargs.get('add_mistakes')
         self.pause_on_punct = kwargs.get('pause_on_punct')
         self.enable_mouse_jitter = kwargs.get('mouse_jitter')
+        self.initial_window_identity = None
         self.press_esc = kwargs.get('press_esc', False)
         self.mistake_chance = MISTAKE_CHANCE 
         self.thinking_pause_chance = 0.04
@@ -1305,25 +1424,29 @@ class TypingWorker(QObject):
     def _await_target_window(self):
         """If started from GUI, wait until focus leaves the source app before locking target."""
         if not (self.started_from_gui and self.source_app):
-            return self.get_active_window_title() or "Unknown"
+            return (
+                self.get_active_window_title() or "Unknown",
+                self.get_active_window_identity() or "Unknown",
+            )
 
         last_hint = 0.0
         while self._running:
-            cur = self.get_active_window_title() or "Unknown"
-            if cur != self.source_app:
-                if self._is_title_blocked(cur):
+            cur_title = self.get_active_window_title() or "Unknown"
+            cur_identity = self.get_active_window_identity() or cur_title
+            if cur_identity != self.source_app:
+                if self._is_title_blocked(cur_title) or self._is_title_blocked(cur_identity):
                     now = time.time()
                     if now - last_hint >= 1.0:
                         self.update_status.emit("Compliance mode: blocked app active. Focus an allowed app to start typing…")
                         last_hint = now
                 else:
-                    return cur
+                    return cur_title, cur_identity
             now = time.time()
             if now - last_hint >= 1.0:
                 self.update_status.emit("Focus your target app and click the input field… (typing starts when it’s active)")
                 last_hint = now
             self._sleep_interruptible(0.1)
-        return None
+        return None, None
 
     def stop(self):
         self._running = False
@@ -1336,7 +1459,7 @@ class TypingWorker(QObject):
             self.pause_event.clear()
             self._pause_started_at = time.time()
             self.paused_signal.emit()
-            if auto_resume_check and self.initial_window:
+            if auto_resume_check and self.initial_window_identity:
                 threading.Thread(target=self._auto_resume_checker, daemon=True).start()
 
     def resume(self):
@@ -1372,12 +1495,12 @@ class TypingWorker(QObject):
         time.sleep(0.5)  # Prevent instant resume on quick window switches
         while self._paused and self._running:
             try:
-                if self.get_active_window_title() == self.initial_window:
+                if self.get_active_window_identity() == self.initial_window_identity:
                     # Grace period to avoid missing text when focus returns.
                     for i in range(4, 0, -1):
                         if not (self._paused and self._running):
                             return
-                        if self.get_active_window_title() != self.initial_window:
+                        if self.get_active_window_identity() != self.initial_window_identity:
                             break
                         try:
                             self.update_status.emit(f"Resuming in {i}…")
@@ -1385,7 +1508,7 @@ class TypingWorker(QObject):
                             pass
                         time.sleep(1)
                     else:
-                        if self.get_active_window_title() == self.initial_window:
+                        if self.get_active_window_identity() == self.initial_window_identity:
                             self.resume()
                             break
             except Exception:
@@ -1399,6 +1522,11 @@ class TypingWorker(QObject):
             return pyautogui.getActiveWindowTitle() or "Unknown"
         except Exception:
             return "Unknown"
+
+    def get_active_window_identity(self):
+        if platform.system() == "Windows":
+            return windows_foreground_window_identity() or self.get_active_window_title()
+        return self.get_active_window_title()
 
     def update_speed_range(self, min_wpm, max_wpm):
         self.min_wpm = min_wpm
@@ -1522,18 +1650,20 @@ class TypingWorker(QObject):
                 return False
 
             title = self.get_active_window_title() or ""
+            identity = self.get_active_window_identity() or title
 
             # Compliance guardrail
             if self.compliance_mode:
                 tl = title.lower()
-                if any(k in tl for k in self.blocked_apps):
+                il = identity.lower()
+                if any(k in tl or k in il for k in self.blocked_apps):
                     if not self._paused:
                         self.update_status.emit("Compliance mode: blocked app active. Pausing...")
                         self.pause(auto_resume_check=True)
                     continue
 
             # Focus lock guardrail
-            if self.initial_window and title != self.initial_window:
+            if self.initial_window_identity and identity != self.initial_window_identity:
                 if not self._paused:
                     self.pause(auto_resume_check=True)
                 continue
@@ -1899,11 +2029,12 @@ class TypingWorker(QObject):
                     self.update_status.emit(f"Starting in {i}...")
                 self._sleep_interruptible(1)
 
-            target = self._await_target_window()
-            if not target:
+            target, target_identity = self._await_target_window()
+            if not target or not target_identity:
                 self.finished.emit()
                 return
             self.initial_window = target
+            self.initial_window_identity = target_identity
             self._target_is_browser = self._is_browser_title(self.initial_window)
             self._release_modifiers_best_effort()
             self.update_status.emit(f"Typing locked on: {self.initial_window}")
@@ -2748,7 +2879,10 @@ class UpdateChecker(QObject):
     rather than nagging the user. Never raises into Qt.
     """
 
-    updateAvailable = pyqtSignal(str, str, str)  # version, url, body
+    # asset_info is a dict {url, name, size} for the OS installer when one is
+    # attached to the release, or None if only portable archives / no assets
+    # are available. UI uses it to decide whether to offer in-app download.
+    updateAvailable = pyqtSignal(str, str, str, object)  # version, html_url, body, asset_info
     upToDate = pyqtSignal(str)
     checkFailed = pyqtSignal(str)
 
@@ -2768,6 +2902,34 @@ class UpdateChecker(QObject):
         if not m:
             return None
         return tuple(int(g or 0) for g in m.groups())
+
+    @staticmethod
+    def _pick_installer_asset(assets):
+        """Return the asset dict matching the current OS's native installer,
+        or None if the release only carries portable archives.
+
+        Match order per platform mirrors the names produced by the release
+        workflow (see .github/workflows/release.yml):
+          macOS   → *-macOS.pkg
+          Windows → *-Windows-Setup.exe
+          Linux   → *_amd64.deb
+        """
+        if not assets:
+            return None
+        sysname = platform.system()
+        for a in assets:
+            name = (a.get("name") or "").lower()
+            url = a.get("browser_download_url")
+            if not url or not name:
+                continue
+            size = int(a.get("size") or 0)
+            if sysname == "Darwin" and name.endswith(".pkg"):
+                return {"url": url, "name": a["name"], "size": size}
+            if sysname == "Windows" and name.endswith(".exe") and "setup" in name:
+                return {"url": url, "name": a["name"], "size": size}
+            if sysname == "Linux" and name.endswith(".deb"):
+                return {"url": url, "name": a["name"], "size": size}
+        return None
 
     @pyqtSlot()
     def run(self):
@@ -2799,9 +2961,74 @@ class UpdateChecker(QObject):
             self.checkFailed.emit(f"Could not parse versions ({latest_tag!r} vs {self._current!r})")
             return
         if latest > current:
-            self.updateAvailable.emit(latest_tag.lstrip("v"), download_url, body)
+            asset_info = self._pick_installer_asset(payload.get("assets") or [])
+            self.updateAvailable.emit(latest_tag.lstrip("v"), download_url, body, asset_info)
         else:
             self.upToDate.emit(latest_tag.lstrip("v"))
+
+
+class InstallerDownloader(QObject):
+    """Streams the chosen release asset to disk in a worker thread.
+
+    Emits `progress(done_bytes, total_bytes)` (total may be 0 if the server
+    omits Content-Length), `finished(local_path)` on a clean save, or
+    `failed(reason)` on any error or user cancel. Writes to a `.part` file
+    and atomically renames on success so a half-downloaded file is never
+    mistaken for the real installer.
+    """
+
+    progress = pyqtSignal(int, int)
+    finished = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, url: str, dest_path: str, parent=None):
+        super().__init__(parent)
+        self._url = url
+        self._dest = dest_path
+        self._cancel = False
+
+    def cancel(self):
+        self._cancel = True
+
+    @pyqtSlot()
+    def run(self):
+        tmp = self._dest + ".part"
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                self._url,
+                headers={
+                    "User-Agent": f"{APP_NAME}/{APP_VERSION} (+update-download)",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                total = int(resp.headers.get("Content-Length") or 0)
+                done = 0
+                with open(tmp, "wb") as f:
+                    while True:
+                        if self._cancel:
+                            try:
+                                f.close()
+                                os.remove(tmp)
+                            except OSError:
+                                pass
+                            self.failed.emit("Download canceled")
+                            return
+                        chunk = resp.read(64 * 1024)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        done += len(chunk)
+                        self.progress.emit(done, total)
+            os.replace(tmp, self._dest)
+        except Exception as e:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            self.failed.emit(f"Download failed: {e}")
+            return
+        self.finished.emit(self._dest)
 
 
 class AutoTyperApp(QWidget):
@@ -2830,18 +3057,7 @@ class AutoTyperApp(QWidget):
         except Exception:
             pass
 
-        # --- Trigger Accessibility prompt early ---
-        if platform.system() == "Darwin":
-            try:
-                # Perform a simple pyautogui action that requires Accessibility
-                # This will make macOS pop up the Accessibility permission prompt if it hasn't already.
-                _ = pyautogui.size() # Or pyautogui.position()
-            except Exception as e:
-                # This exception likely means permissions are not granted,
-                # but the user needs to go to System Settings for the full message.
-                print(f"PyAutoGUI check failed (expected if permissions are not set): {e}")
-
-        self.check_macos_permissions() # Your existing informational QMessageBox
+        self.check_macos_permissions(prompt=True, show_dialog=False)
 
         # Background update check — fires at most once a day, silent unless
         # an update is available. Delayed a few seconds so we never block
@@ -2910,6 +3126,11 @@ class AutoTyperApp(QWidget):
             return pyautogui.getActiveWindowTitle() or "Unknown"
         except Exception:
             return "Unknown"
+
+    def _get_active_window_identity_main(self):
+        if platform.system() == "Windows":
+            return windows_foreground_window_identity() or self._get_active_window_title_main()
+        return self._get_active_window_title_main()
 
     def _categorize_title(self, title):
         t = (title or "").lower()
@@ -2993,14 +3214,57 @@ class AutoTyperApp(QWidget):
             return True
         return False
 
-    def check_macos_permissions(self):
-        if platform.system() == "Darwin":
-            # We cannot programmatically check the _status_ of permissions,
-            # but we can remind the user and guide them on demand.
+    def _open_macos_accessibility_settings(self):
+        try:
+            if QDesktopServices.openUrl(QUrl(MACOS_ACCESSIBILITY_SETTINGS_URL)):
+                return
+        except Exception:
+            pass
+        try:
+            subprocess.Popen(["open", MACOS_ACCESSIBILITY_SETTINGS_URL])
+        except Exception:
+            pass
+
+    def _show_macos_permissions_dialog(self, title, blocking=False):
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Warning)
+        msg.setWindowTitle(title)
+        msg.setText("NexusTyper Pro needs macOS Accessibility permission before it can type into other apps.")
+        msg.setInformativeText(
+            "Open Privacy & Security, enable NexusTyper Pro under Accessibility, "
+            "then start typing again. If the app is already listed, toggle it off and on."
+        )
+        settings_btn = msg.addButton("Open Privacy Settings", QMessageBox.AcceptRole)
+        msg.addButton("OK", QMessageBox.RejectRole)
+        msg.exec_()
+        if msg.clickedButton() is settings_btn:
+            self._open_macos_accessibility_settings()
+        if blocking:
             try:
-                logger.info("macOS permissions reminder shown in logs")
+                self.status_label.setText("Status: macOS Accessibility permission required.")
             except Exception:
                 pass
+
+    def check_macos_permissions(self, prompt=False, show_dialog=True):
+        if platform.system() != "Darwin":
+            return True
+        trusted = macos_accessibility_trusted(prompt=prompt)
+        try:
+            logger.info(f"macOS Accessibility trusted={trusted}")
+        except Exception:
+            pass
+        if not trusted and show_dialog:
+            self._show_macos_permissions_dialog("macOS permission required")
+        return trusted
+
+    def _ensure_macos_typing_permissions(self):
+        if platform.system() != "Darwin":
+            return True
+        if self.check_macos_permissions(prompt=True, show_dialog=False):
+            return True
+        self._show_macos_permissions_dialog("Typing blocked", blocking=True)
+        return False
+
     def apply_macos_float_behavior(self, checked):
         """No-op; using Qt WindowStaysOnTopHint for cross-platform stability."""
         return
@@ -4537,6 +4801,9 @@ class AutoTyperApp(QWidget):
             self.status_label.setText("Status: Error - Input text cannot be empty.")
             return
 
+        if not self._ensure_macos_typing_permissions():
+            return
+
         # Safety: confirm CLICK macros before starting (if enabled).
         enable_macros = self._macros_enabled()
         if enable_macros and self.confirm_click_checkbox.isChecked():
@@ -4579,7 +4846,7 @@ class AutoTyperApp(QWidget):
         try:
             started_from_gui = bool(self.isActiveWindow())
             if started_from_gui:
-                source_app = self._get_active_window_title_main()
+                source_app = self._get_active_window_identity_main()
         except Exception:
             started_from_gui = False
             source_app = ""
@@ -5079,7 +5346,7 @@ class AutoTyperApp(QWidget):
         self._update_thread.start()
         self.settings.setValue("updateCheckLastEpoch", time.time())
 
-    def _on_update_available(self, version, url, body):
+    def _on_update_available(self, version, url, body, asset_info):
         try:
             logger.info(f"Update available: {version} (current {APP_VERSION})")
         except Exception:
@@ -5091,14 +5358,111 @@ class AutoTyperApp(QWidget):
         if body:
             short = body if len(body) < 600 else body[:600] + "…"
             msg.setInformativeText(short)
-        download_btn = msg.addButton("Open download page", QMessageBox.AcceptRole)
+        install_btn = None
+        if asset_info:
+            size_mb = (asset_info.get("size") or 0) / (1024 * 1024)
+            label = "Download && install"
+            if size_mb >= 1:
+                label = f"Download && install ({size_mb:.0f} MB)"
+            install_btn = msg.addButton(label, QMessageBox.AcceptRole)
+            msg.setDefaultButton(install_btn)
+        page_btn = msg.addButton("Open download page", QMessageBox.ActionRole)
         msg.addButton("Later", QMessageBox.RejectRole)
         msg.exec_()
-        if msg.clickedButton() is download_btn:
+        clicked = msg.clickedButton()
+        if install_btn is not None and clicked is install_btn:
+            self._start_installer_download(asset_info["url"], asset_info["name"])
+        elif clicked is page_btn:
             try:
                 QDesktopServices.openUrl(QUrl(url or UPDATE_DOWNLOAD_PAGE))
             except Exception:
                 pass
+
+    def _start_installer_download(self, url: str, filename: str):
+        """Stream the installer to ~/Downloads with a progress dialog, then
+        hand it to the OS so the native installer can launch (Apple
+        Installer for .pkg, Inno Setup wizard for Setup.exe, the system
+        package viewer for .deb).
+        """
+        existing = getattr(self, "_installer_thread", None)
+        if existing is not None and existing.isRunning():
+            return
+
+        downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+        if not os.path.isdir(downloads):
+            try:
+                import tempfile
+                downloads = tempfile.gettempdir()
+            except Exception:
+                downloads = os.path.expanduser("~")
+        dest = os.path.join(downloads, filename)
+
+        progress = QProgressDialog(
+            f"Downloading {filename}…", "Cancel", 0, 0, self
+        )
+        progress.setWindowTitle("Downloading update")
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.setWindowModality(Qt.WindowModal)
+
+        worker = InstallerDownloader(url, dest)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        self._installer_worker = worker
+        self._installer_thread = thread
+
+        def on_progress(done, total):
+            mb_done = done / (1024 * 1024)
+            if total > 0:
+                progress.setMaximum(total)
+                progress.setValue(done)
+                mb_total = total / (1024 * 1024)
+                progress.setLabelText(
+                    f"Downloading {filename}\n{mb_done:.1f} / {mb_total:.1f} MB"
+                )
+            else:
+                progress.setLabelText(
+                    f"Downloading {filename}\n{mb_done:.1f} MB"
+                )
+
+        def on_finished(path):
+            progress.reset()
+            progress.close()
+            thread.quit()
+            try:
+                logger.info(f"Update installer downloaded: {path}")
+            except Exception:
+                pass
+            try:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            except Exception:
+                pass
+            QMessageBox.information(
+                self,
+                "Update downloaded",
+                f"Saved to:\n{path}\n\nThe installer should now launch — "
+                f"follow its prompts to finish updating.",
+            )
+
+        def on_failed(reason):
+            progress.reset()
+            progress.close()
+            thread.quit()
+            try:
+                logger.info(f"Update download: {reason}")
+            except Exception:
+                pass
+            if "canceled" not in reason.lower():
+                QMessageBox.warning(self, "Download failed", reason)
+
+        thread.started.connect(worker.run)
+        worker.progress.connect(on_progress)
+        worker.finished.connect(on_finished)
+        worker.failed.connect(on_failed)
+        progress.canceled.connect(worker.cancel)
+        thread.finished.connect(thread.deleteLater)
+        thread.start()
 
     def _on_update_up_to_date(self, version):
         if getattr(self, "_update_verbose", False):
