@@ -1,9 +1,62 @@
-*Nex
-*NexusTyper Pro copy.py
-*NexusTyper Pro copy 2.py
+# --- macOS ---
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# --- Python ---
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+
+# --- Virtual environments ---
+Nex/
+.venv/
+venv/
+env/
+ENV/
+
+# --- PyInstaller build artifacts ---
+build/
+dist/
+*.manifest
+*.spec.bak
+
+# --- Editors / IDEs ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.cursor/
+.aider*
+
+# --- Secrets & local config ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Project scratch / backup files ---
+NexusTyper Pro copy.py
+NexusTyper Pro copy 2.py
 OUTPUT TEST.py
 PLAIN TEXT OUTPUT TEST.txt
-.gitignore
-.gitignore
+NexusTyper_Pro_Deck.pptx
+txt
+
+# --- Logs ---
+*.log
+logs/

@@ -1,0 +1,15 @@
+# Core GUI
+PyQt5>=5.15,<6
+
+# Input automation + clipboard
+pyautogui>=0.9.53
+pynput>=1.7
+pyperclip>=1.8
+
+# macOS-only — pulled in automatically on Darwin
+pyobjc-core>=10 ; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10 ; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10 ; sys_platform == "darwin"
+
+# Bundling (dev only — install when you want to build a binary)
+# pyinstaller>=6.0
