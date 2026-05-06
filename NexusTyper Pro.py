@@ -375,12 +375,25 @@ QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled, QTextEdit:disabled, Q
     color: #475569; background-color: #0B1220;
 }
 
-QSpinBox::up-button, QSpinBox::down-button {
-    background-color: #1E293B;
+QSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    background: transparent;
     border: none;
     width: 16px;
+    margin-right: 2px;
 }
-QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #334155; }
+QSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    background: transparent;
+    border: none;
+    width: 16px;
+    margin-right: 2px;
+}
+QSpinBox::up-arrow { image: url({chev_up_dark}); width: 10px; height: 9px; }
+QSpinBox::down-arrow { image: url({chev_down_dark}); width: 10px; height: 9px; }
+QSpinBox::up-button:hover, QSpinBox::down-button:hover { background: rgba(51, 65, 85, 0.5); border-radius: 3px; }
 
 QComboBox::drop-down { width: 22px; border: none; background: transparent; }
 QComboBox QAbstractItemView {
@@ -401,14 +414,22 @@ QCheckBox::indicator {
     background: #0B1220;
 }
 QCheckBox::indicator:hover { border-color: #06B6D4; }
-QCheckBox::indicator:checked { background-color: #06B6D4; border-color: #06B6D4; }
+QCheckBox::indicator:checked {
+    background-color: #06B6D4;
+    border: 1px solid #06B6D4;
+    image: url({check_white});
+}
 QRadioButton::indicator {
     border: 1px solid #334155;
     border-radius: 8px;
     background: #0B1220;
 }
 QRadioButton::indicator:hover { border-color: #06B6D4; }
-QRadioButton::indicator:checked { background-color: #0B1220; border: 5px solid #06B6D4; }
+QRadioButton::indicator:checked {
+    border: 1.5px solid #06B6D4;
+    background: #0B1220;
+    image: url({dot_dark});
+}
 
 QSlider::groove:horizontal {
     border: none;
@@ -470,7 +491,7 @@ QLabel#wordmark {
     font-weight: 700;
     letter-spacing: 0.6px;
 }
-QLabel#wordmarkVersion { color: #475569; font-size: 9pt; padding-left: 4px; }
+QLabel#wordmarkVersion { color: #64748B; font-size: 9pt; padding-left: 4px; }
 QLabel#personaLabel {
     color: #64748B;
     font-size: 9pt;
@@ -486,7 +507,7 @@ QComboBox#personaPill {
     font-weight: 500;
 }
 QComboBox#personaPill:hover { border-color: #06B6D4; }
-QLabel#hotkeyHint { color: #475569; font-size: 9pt; }
+QLabel#hotkeyHint { color: #94A3B8; font-size: 9pt; }
 QFrame#runDivider { background: #1E293B; border: none; }
 QFrame#metricsStrip {
     background-color: #0B1220;
@@ -683,12 +704,25 @@ QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled, QTextEdit:disabled, Q
     color: #94A3B8; background-color: #F1F5F9;
 }
 
-QSpinBox::up-button, QSpinBox::down-button {
-    background-color: #F1F5F9;
+QSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    background: transparent;
     border: none;
     width: 16px;
+    margin-right: 2px;
 }
-QSpinBox::up-button:hover, QSpinBox::down-button:hover { background-color: #E2E8F0; }
+QSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    background: transparent;
+    border: none;
+    width: 16px;
+    margin-right: 2px;
+}
+QSpinBox::up-arrow { image: url({chev_up_light}); width: 10px; height: 9px; }
+QSpinBox::down-arrow { image: url({chev_down_light}); width: 10px; height: 9px; }
+QSpinBox::up-button:hover, QSpinBox::down-button:hover { background: #E2E8F0; border-radius: 3px; }
 
 QComboBox::drop-down { width: 22px; border: none; background: transparent; }
 QComboBox QAbstractItemView {
@@ -709,14 +743,22 @@ QCheckBox::indicator {
     background: #FFFFFF;
 }
 QCheckBox::indicator:hover { border-color: #06B6D4; }
-QCheckBox::indicator:checked { background-color: #06B6D4; border-color: #06B6D4; }
+QCheckBox::indicator:checked {
+    background-color: #0891B2;
+    border: 1px solid #0891B2;
+    image: url({check_white});
+}
 QRadioButton::indicator {
     border: 1px solid #CBD5E1;
     border-radius: 8px;
     background: #FFFFFF;
 }
-QRadioButton::indicator:hover { border-color: #06B6D4; }
-QRadioButton::indicator:checked { background-color: #FFFFFF; border: 5px solid #06B6D4; }
+QRadioButton::indicator:hover { border-color: #0891B2; }
+QRadioButton::indicator:checked {
+    border: 1.5px solid #0891B2;
+    background: #FFFFFF;
+    image: url({dot_light});
+}
 
 QSlider::groove:horizontal {
     border: none;
@@ -778,7 +820,7 @@ QLabel#wordmark {
     font-weight: 700;
     letter-spacing: 0.6px;
 }
-QLabel#wordmarkVersion { color: #94A3B8; font-size: 9pt; padding-left: 4px; }
+QLabel#wordmarkVersion { color: #64748B; font-size: 9pt; padding-left: 4px; }
 QLabel#personaLabel {
     color: #94A3B8;
     font-size: 9pt;
@@ -794,7 +836,7 @@ QComboBox#personaPill {
     font-weight: 500;
 }
 QComboBox#personaPill:hover { border-color: #06B6D4; }
-QLabel#hotkeyHint { color: #94A3B8; font-size: 9pt; }
+QLabel#hotkeyHint { color: #64748B; font-size: 9pt; }
 QFrame#runDivider { background: #E2E8F0; border: none; }
 QFrame#metricsStrip {
     background-color: #FFFFFF;
@@ -2423,6 +2465,85 @@ LUCIDE_PATHS = {
 }
 
 
+_QSS_ASSETS_CACHE = None
+
+
+def ensure_qss_assets():
+    """Render small SVG indicators (checkmark, radio dot, chevrons) to PNG
+    files and return a dict of forward-slash paths suitable for QSS ``url(...)``.
+
+    Qt 5 doesn't accept ``data:`` URLs in stylesheets, so we drop the PNGs
+    in a temp dir on first use and reference them by path.
+    """
+    global _QSS_ASSETS_CACHE
+    if _QSS_ASSETS_CACHE:
+        return _QSS_ASSETS_CACHE
+    import tempfile
+    try:
+        from PyQt5.QtSvg import QSvgRenderer
+    except Exception:
+        return {}
+    base = os.path.join(tempfile.gettempdir(), "nexustyper_qss_assets")
+    os.makedirs(base, exist_ok=True)
+
+    def _render(svg_str, size=16):
+        pix = QPixmap(size, size)
+        pix.fill(Qt.transparent)
+        renderer = QSvgRenderer(svg_str.encode("utf-8"))
+        p = QPainter(pix)
+        try:
+            p.setRenderHint(QPainter.Antialiasing, True)
+            renderer.render(p)
+        finally:
+            p.end()
+        return pix
+
+    def _save(name, pix):
+        path = os.path.join(base, name)
+        pix.save(path, "PNG")
+        return path.replace("\\", "/")
+
+    assets = {}
+    # Checkmarks. The on-cyan one uses white, the inverted one (used over a
+    # transparent surface, currently unused) uses cyan.
+    check_white = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+        '<path d="M3.5 8.5l3 3 6-6" fill="none" stroke="#FFFFFF" '
+        'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    )
+    assets["check_white"] = _save("check_white.png", _render(check_white))
+
+    # Radio dots — sit centered inside the indicator. Two variants because
+    # the dot color contrasts differently in light vs dark themes.
+    def _dot(color):
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+            f'<circle cx="8" cy="8" r="3.4" fill="{color}"/></svg>'
+        )
+    assets["dot_dark"] = _save("dot_dark.png", _render(_dot("#06B6D4")))
+    assets["dot_light"] = _save("dot_light.png", _render(_dot("#0891B2")))
+
+    # Spinbox chevrons — paired up + down arrows in dark and light variants.
+    def _chev(direction, color):
+        # 'up' or 'down'
+        if direction == "up":
+            d = "M2.5 5.5l2.5-2.5 2.5 2.5"
+        else:
+            d = "M2.5 4.5l2.5 2.5 2.5-2.5"
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 9">'
+            f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1.5" '
+            'stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        )
+    for theme, color in (("dark", "#94A3B8"), ("light", "#475569")):
+        for direction in ("up", "down"):
+            key = f"chev_{direction}_{theme}"
+            assets[key] = _save(f"{key}.png", _render(_chev(direction, color), size=10))
+
+    _QSS_ASSETS_CACHE = assets
+    return assets
+
+
 def make_lucide_icon(name, color="#94A3B8", size=20, stroke_width=1.8):
     """Render a Lucide-style icon to a QIcon, tinted to ``color``.
 
@@ -3026,17 +3147,17 @@ class AutoTyperApp(QWidget):
         self.delay_spin.setRange(0, 60)
         self.delay_spin.setValue(DEFAULT_DELAY)
         for spin in (self.laps_spin, self.delay_spin):
-            spin.setMinimumWidth(70)
+            spin.setMinimumWidth(56)
+            spin.setMaximumWidth(80)
         laps_lbl = QLabel("Laps")
         laps_lbl.setObjectName("fieldLabel")
         delay_lbl = QLabel("Delay (s)")
         delay_lbl.setObjectName("fieldLabel")
         pacing_row.addWidget(laps_lbl)
-        pacing_row.addWidget(self.laps_spin)
-        pacing_row.addSpacing(16)
+        pacing_row.addWidget(self.laps_spin, 1)
+        pacing_row.addSpacing(12)
         pacing_row.addWidget(delay_lbl)
-        pacing_row.addWidget(self.delay_spin)
-        pacing_row.addStretch(1)
+        pacing_row.addWidget(self.delay_spin, 1)
         pacing_lay.addLayout(pacing_row)
 
         # Persona is already the highlighted control in the masthead — alias the
@@ -3074,16 +3195,12 @@ class AutoTyperApp(QWidget):
         speed_lay.addLayout(_speed_row("Min", self.min_wpm_slider, self.min_wpm_label))
         speed_lay.addLayout(_speed_row("Max", self.max_wpm_slider, self.max_wpm_label))
 
-        humanizers = QHBoxLayout()
-        humanizers.setSpacing(18)
         self.add_mistakes_checkbox = QCheckBox("Add mistakes")
         self.add_mistakes_checkbox.setChecked(True)
         self.pause_on_punct_checkbox = QCheckBox("Pause on punctuation")
         self.pause_on_punct_checkbox.setChecked(True)
-        humanizers.addWidget(self.add_mistakes_checkbox)
-        humanizers.addWidget(self.pause_on_punct_checkbox)
-        humanizers.addStretch(1)
-        speed_lay.addLayout(humanizers)
+        speed_lay.addWidget(self.add_mistakes_checkbox)
+        speed_lay.addWidget(self.pause_on_punct_checkbox)
 
         # ---- Newlines ----
         self.newline_group_box, newline_lay = _section("Newlines")
@@ -3096,16 +3213,9 @@ class AutoTyperApp(QWidget):
         self.list_mode_radio = QRadioButton("List mode (code)")
         self.list_mode_radio.setToolTip("Strips leading indentation; your editor controls indentation.")
         self.standard_radio.setChecked(True)
-        nl_grid = QGridLayout()
-        nl_grid.setHorizontalSpacing(12)
-        nl_grid.setVerticalSpacing(4)
-        nl_grid.addWidget(self.paste_mode_radio, 0, 0)
-        nl_grid.addWidget(self.standard_radio, 0, 1)
-        nl_grid.addWidget(self.smart_radio, 1, 0)
-        nl_grid.addWidget(self.list_mode_radio, 1, 1)
-        nl_grid.setColumnStretch(0, 1)
-        nl_grid.setColumnStretch(1, 1)
-        newline_lay.addLayout(nl_grid)
+        for radio in (self.paste_mode_radio, self.standard_radio,
+                      self.smart_radio, self.list_mode_radio):
+            newline_lay.addWidget(radio)
 
         # ---- Behavior ----
         behavior_body, behavior_lay = _section("Behavior")
@@ -3140,8 +3250,8 @@ class AutoTyperApp(QWidget):
 
         # ---- Compliance ----
         compliance_body, compliance_lay = _section("Compliance")
-        self.compliance_mode_checkbox = QCheckBox("Pause when a blocked app is active")
-        self.compliance_mode_checkbox.setToolTip("Auto-pauses when a blocked app becomes active.")
+        self.compliance_mode_checkbox = QCheckBox("Pause on blocked apps")
+        self.compliance_mode_checkbox.setToolTip("Auto-pauses when one of the blocked apps below becomes the active window.")
         compliance_lay.addWidget(self.compliance_mode_checkbox)
         blocked_row = QHBoxLayout()
         blocked_row.setSpacing(8)
@@ -4862,11 +4972,19 @@ class AutoTyperApp(QWidget):
             print(f"Hotkey listener error: {e}")
 
     def toggle_dark_mode(self, checked):
+        assets = ensure_qss_assets()
+        sheet = DARK_STYLESHEET if checked else LIGHT_STYLESHEET
+        # Replace `{token}` placeholders with asset URLs without going through
+        # str.format() (which would also try to parse the QSS `{...}` blocks).
+        for token in ("check_white", "dot_dark", "dot_light",
+                      "chev_up_dark", "chev_down_dark",
+                      "chev_up_light", "chev_down_light"):
+            sheet = sheet.replace("{" + token + "}", assets.get(token, ""))
         app = QApplication.instance()
         if app is not None:
-            app.setStyleSheet(DARK_STYLESHEET if checked else LIGHT_STYLESHEET)
+            app.setStyleSheet(sheet)
         else:
-            self.setStyleSheet(DARK_STYLESHEET if checked else LIGHT_STYLESHEET)
+            self.setStyleSheet(sheet)
         self.settings.setValue("darkMode", checked)
 
     def _toggle_sidebar(self, hide):
