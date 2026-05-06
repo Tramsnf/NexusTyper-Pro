@@ -53,7 +53,7 @@ class DryRunWorker(QObject):
     def run(self):
         try:
             content = self.text
-            for lap in range(self.laps):
+            for _lap in range(self.laps):
                 if not self._running:
                     break
                 if self.mode == 'Smart Newlines':

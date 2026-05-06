@@ -18,9 +18,7 @@ except OSError:
 
 import time
 import re
-import random
 import platform
-import threading
 import subprocess
 
 from PyQt5.QtWidgets import (
@@ -68,7 +66,7 @@ from nexustyper.ui.dialogs.settings import SettingsDialog
 from nexustyper.ui.dialogs.diagnostics import DiagnosticsDialog
 from nexustyper.typing import (
     sanitize_ai_text, apply_smart_newlines, KEY_ADJACENCY,
-    TypingWorker, DryRunWorker,
+    TypingWorker,
 )
 from nexustyper.typing.content_detection import (
     categorize_title, detect_content_kind, contains_non_ascii,
@@ -86,14 +84,14 @@ from nexustyper.services.file_ingestion import (
 )
 from nexustyper.ui.widgets.text_edit import PasteCleaningTextEdit, CodeEditor
 from nexustyper.ui.dialogs.dry_run import DryRunDialog
-from nexustyper.ui.icons import LUCIDE_PATHS, make_lucide_icon
+from nexustyper.ui.icons import make_lucide_icon
 
 
 # Conditional import for platform-specific libraries
 try:
     import pyautogui
     import pynput  # noqa: F401 — startup presence check; HotkeyListener does the real import
-    import pyperclip
+    import pyperclip  # noqa: F401 — startup presence check; nexustyper.typing.worker uses it
 except ImportError as e:
     print(f"Error: A required library is missing (e.g., pyautogui, pynput, pyperclip). Please install it. {e}")
     sys.exit(1)
@@ -2553,7 +2551,6 @@ class AutoTyperApp(QWidget):
             painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
             inset = size * 0.27
-            mid = size / 2
             path = QPainterPath()
             path.moveTo(inset, inset)
             path.lineTo(inset, size - inset)

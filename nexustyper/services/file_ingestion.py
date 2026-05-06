@@ -195,10 +195,10 @@ def _read_docx(path: str) -> str:
     """
     try:
         import docx  # type: ignore
-    except ImportError:
+    except ImportError as exc:
         raise FileIngestionError(
             "Cannot read .docx: install 'python-docx' (pip install python-docx)."
-        )
+        ) from exc
     try:
         doc = docx.Document(path)
         return "\n".join(para.text for para in doc.paragraphs)
