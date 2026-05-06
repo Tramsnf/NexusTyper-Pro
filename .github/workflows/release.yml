@@ -24,9 +24,9 @@ jobs:
     name: Build macOS .app
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -39,6 +39,17 @@ jobs:
       - name: Build .app
         run: pyinstaller "NexusTyper Pro.spec"
 
+      - name: Ad-hoc sign the bundle
+        # Without any signature, Apple Silicon refuses to launch the .app
+        # (it shows up as "damaged") even after Gatekeeper is bypassed.
+        # Ad-hoc signing (`-s -`) attaches a self-cert that satisfies the
+        # kernel's signature check without needing a paid Developer ID.
+        # End users still see the Gatekeeper "unverified developer" prompt
+        # on first launch and have to right-click -> Open once.
+        run: |
+          codesign --force --deep --sign - "dist/NexusTyper Pro.app"
+          codesign --verify --deep --strict --verbose=2 "dist/NexusTyper Pro.app" || true
+
       - name: Zip the bundle
         working-directory: dist
         run: |
@@ -46,7 +57,7 @@ jobs:
             "NexusTyper Pro.app" \
             "NexusTyper-Pro-${{ github.ref_name }}-macOS.zip"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: NexusTyper-Pro-macOS
           path: dist/*.zip
@@ -64,9 +75,9 @@ jobs:
     name: Build Windows .exe
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -99,7 +110,7 @@ jobs:
           $zip = "dist/NexusTyper-Pro-${{ github.ref_name }}-Windows.zip"
           Compress-Archive -Path "dist/NexusTyper Pro/*" -DestinationPath $zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: NexusTyper-Pro-Windows
           path: dist/*.zip
@@ -117,9 +128,9 @@ jobs:
     name: Build Linux binary
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -151,7 +162,7 @@ jobs:
           cd dist
           tar -czf "NexusTyper-Pro-${{ github.ref_name }}-Linux.tar.gz" "NexusTyper-Pro"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: NexusTyper-Pro-Linux
           path: dist/*.tar.gz

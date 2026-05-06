@@ -74,9 +74,33 @@ three artifacts:
 
 | Platform | File | How to run |
 |---|---|---|
-| macOS    | `NexusTyper-Pro-vX.Y-macOS.zip`   | Unzip → first launch: right-click `NexusTyper Pro.app` → **Open** (the app is unsigned; macOS asks once). Grant Accessibility + Input Monitoring when prompted. |
-| Windows  | `NexusTyper-Pro-vX.Y-Windows.zip` | Unzip → run `NexusTyper Pro.exe`. |
-| Linux    | `NexusTyper-Pro-vX.Y-Linux.tar.gz`| `tar -xzf … && ./NexusTyper-Pro/NexusTyper-Pro` |
+| macOS    | `NexusTyper-Pro-vX.Y-macOS.zip`   | See [macOS first-run notes](#macos-first-run-notes) below. |
+| Windows  | `NexusTyper-Pro-vX.Y-Windows.zip` | Unzip → run `NexusTyper Pro.exe`. SmartScreen may warn the first time; click **More info** → **Run anyway**. |
+| Linux    | `NexusTyper-Pro-vX.Y-Linux.tar.gz`| `tar -xzf NexusTyper-Pro-*-Linux.tar.gz && ./NexusTyper-Pro/NexusTyper-Pro` |
+
+#### macOS first-run notes
+
+The bundle is **ad-hoc signed but not notarized** — it has a valid signature
+(so it launches on Apple Silicon), but Apple has no record of the developer,
+so Gatekeeper will warn on first open. Pick the option that works for you:
+
+1. **Easiest** — right-click (or Control-click) `NexusTyper Pro.app` →
+   **Open** → confirm the warning dialog. macOS remembers the override and
+   subsequent launches don't prompt.
+2. **If macOS says "damaged" or won't open after #1** — open Terminal in the
+   folder containing the .app and run:
+   ```bash
+   xattr -cr "NexusTyper Pro.app"
+   ```
+   That strips the `com.apple.quarantine` attribute Safari/Chrome attached
+   when you downloaded the zip.
+3. **System Settings path** — try to launch normally, get blocked, then go
+   to **System Settings → Privacy & Security**, scroll to the message
+   about NexusTyper Pro, and click **Open Anyway**.
+
+After first launch, macOS will prompt you to grant **Accessibility** and
+**Input Monitoring** in *System Settings → Privacy & Security*. Both are
+required for the app to send keystrokes to other windows.
 
 ### How updates reach users
 
