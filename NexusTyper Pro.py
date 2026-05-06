@@ -3482,10 +3482,7 @@ class AutoTyperApp(QWidget):
         self.settings_scroll.setFrameShape(QFrame.NoFrame)
         try:
             self.settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            # Soft minimum so the longest checkbox labels stay legible without
-            # clipping. Windows fonts (Segoe UI) render wider than macOS at the
-            # same point size, so this value is sized for the worst case.
-            self.settings_scroll.setMinimumWidth(320)
+            self.settings_scroll.setMinimumWidth(260)
         except Exception:
             pass
         settings_container = QWidget(self.settings_scroll)
