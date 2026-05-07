@@ -2323,8 +2323,14 @@ class AutoTyperApp(QWidget):
             if (time.time() - last) < 86400:
                 return
         existing = getattr(self, "_update_thread", None)
-        if existing is not None and existing.isRunning():
-            return
+        if existing is not None:
+            try:
+                if existing.isRunning():
+                    return
+            except RuntimeError:
+                # Wrapper survives but the C++ QThread was deleteLater'd
+                # after the previous check; treat the slot as free.
+                pass
         self._update_verbose = bool(verbose)
         self._update_worker = UpdateChecker(UPDATE_FEED_URL, APP_VERSION)
         self._update_thread = QThread(self)
@@ -2337,9 +2343,17 @@ class AutoTyperApp(QWidget):
                     self._update_worker.upToDate,
                     self._update_worker.checkFailed):
             sig.connect(self._update_thread.quit)
+            sig.connect(self._update_worker.deleteLater)
+        # Clear our Python refs first so the next click sees None and builds
+        # a fresh worker/thread; deleteLater fires after.
+        self._update_thread.finished.connect(self._on_update_thread_finished)
         self._update_thread.finished.connect(self._update_thread.deleteLater)
         self._update_thread.start()
         self.settings.setValue("updateCheckLastEpoch", time.time())
+
+    def _on_update_thread_finished(self):
+        self._update_thread = None
+        self._update_worker = None
 
     def _on_update_available(self, version, url, body, asset_info):
         try:
@@ -2380,8 +2394,14 @@ class AutoTyperApp(QWidget):
         package viewer for .deb).
         """
         existing = getattr(self, "_installer_thread", None)
-        if existing is not None and existing.isRunning():
-            return
+        if existing is not None:
+            try:
+                if existing.isRunning():
+                    return
+            except RuntimeError:
+                # Wrapper survives but the C++ QThread was deleteLater'd
+                # after the previous download; treat the slot as free.
+                pass
 
         downloads = os.path.join(os.path.expanduser("~"), "Downloads")
         if not os.path.isdir(downloads):
@@ -2451,11 +2471,18 @@ class AutoTyperApp(QWidget):
             if "canceled" not in reason.lower():
                 QMessageBox.warning(self, "Download failed", reason)
 
+        def _on_installer_thread_finished():
+            self._installer_thread = None
+            self._installer_worker = None
+
         thread.started.connect(worker.run)
         worker.progress.connect(on_progress)
         worker.finished.connect(on_finished)
         worker.failed.connect(on_failed)
+        worker.finished.connect(worker.deleteLater)
+        worker.failed.connect(worker.deleteLater)
         progress.canceled.connect(worker.cancel)
+        thread.finished.connect(_on_installer_thread_finished)
         thread.finished.connect(thread.deleteLater)
         thread.start()
 
