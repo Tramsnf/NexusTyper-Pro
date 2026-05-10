@@ -68,6 +68,57 @@ class MacOSPlatform(Platform):
             _log_caught('active_app_identity@L61')
             return "Unknown"
 
+    def active_window_title(self) -> str:
+        """Return the focused window's title via the Accessibility API.
+
+        :meth:`active_app_identity` returns just the app name on macOS
+        ("Google Chrome") — same regardless of tab — so it can't drive
+        per-tab focus locking. This method reads the actual focused-window
+        title via the AX framework, using the same Accessibility permission
+        the app already has for synthetic input (no new prompt). Falls back
+        to pyautogui's AppleScript path if the AX read fails.
+        """
+        title = self._ax_focused_window_title()
+        if title:
+            return title
+        try:
+            import pyautogui  # type: ignore
+            return pyautogui.getActiveWindowTitle() or ""
+        except Exception:
+            _log_caught('active_window_title')
+            return ""
+
+    def _ax_focused_window_title(self) -> str:
+        try:
+            from ApplicationServices import (  # type: ignore
+                AXUIElementCopyAttributeValue,
+                AXUIElementCreateSystemWide,
+            )
+        except Exception:
+            _log_caught('_ax_focused_window_title')
+            return ""
+        try:
+            sys_elem = AXUIElementCreateSystemWide()
+            err, focused_app = AXUIElementCopyAttributeValue(
+                sys_elem, "AXFocusedApplication", None,
+            )
+            if err != 0 or focused_app is None:
+                return ""
+            err, focused_window = AXUIElementCopyAttributeValue(
+                focused_app, "AXFocusedWindow", None,
+            )
+            if err != 0 or focused_window is None:
+                return ""
+            err, title = AXUIElementCopyAttributeValue(
+                focused_window, "AXTitle", None,
+            )
+            if err != 0 or title is None:
+                return ""
+            return str(title)
+        except Exception:
+            _log_caught('_ax_focused_window_title')
+            return ""
+
     def release_modifiers_best_effort(self) -> None:
         try:
             import pyautogui  # type: ignore

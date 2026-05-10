@@ -266,10 +266,12 @@ class TypingWorker(QObject):
                 return
 
     def get_active_window_title(self):
+        # Use the platform's per-window title (changes on tab/window switch)
+        # rather than active_app_identity (just the app name, identical across
+        # tabs of the same app — that broke tab-switch detection on macOS).
         try:
-            if self._platform.name == "macos":
-                return self._platform.active_app_identity()
-            return pyautogui.getActiveWindowTitle() or "Unknown"
+            title = self._platform.active_window_title()
+            return title or "Unknown"
         except Exception:
             _log_caught('get_active_window_title@L267')
             return "Unknown"
