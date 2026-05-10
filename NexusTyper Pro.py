@@ -1525,7 +1525,11 @@ class AutoTyperApp(QWidget):
 
     def update_text_stats(self):
         text = self.get_input_text()
-        words = len(re.findall(r"\b\w+\b", text))
+        # Whitespace-split count, matching MS Word / Google Docs / Pages.
+        # The previous \b\w+\b regex over-counted contractions ("don't" -> 2),
+        # email addresses ("foo@bar.com" -> 3), and similar punctuation-mixed
+        # tokens because non-word characters split words.
+        words = len(text.split())
         chars = len(text)
         lines = len(text.splitlines()) if text else 0
         non_ascii = 0
