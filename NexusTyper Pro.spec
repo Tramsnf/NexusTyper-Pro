@@ -14,12 +14,20 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
-# Pull APP_VERSION from the single-source-of-truth in the script itself.
+# Pull APP_VERSION from the single source of truth (nexustyper.constants).
+# Reading the constant directly with a regex avoids importing the package
+# at spec-eval time (which would drag in PyQt5 / pyautogui on the build
+# host). A CI env-var override lets the release workflow inject the tag
+# version so the bundle's Info.plist matches the GitHub release tag even
+# if a maintainer forgets to bump constants.py.
 def _read_app_version(default="0.0.0"):
+    env_override = os.environ.get("NEXUSTYPER_VERSION_OVERRIDE", "").strip()
+    if env_override:
+        return env_override
     try:
-        with open("NexusTyper Pro.py", "r", encoding="utf-8") as f:
-            head = f.read(8000)
-        m = re.search(r'APP_VERSION\s*=\s*[\'"]([^\'"]+)[\'"]', head)
+        with open("nexustyper/constants.py", "r", encoding="utf-8") as f:
+            src = f.read()
+        m = re.search(r'^APP_VERSION\s*=\s*[\'"]([^\'"]+)[\'"]', src, re.M)
         return m.group(1) if m else default
     except Exception:
         return default
