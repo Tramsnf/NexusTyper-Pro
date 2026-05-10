@@ -1,4 +1,5 @@
 """DryRunDialog — preview the typing sequence without sending keystrokes."""
+from nexustyper.services.logging_setup import _log_caught
 
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QTextEdit,
@@ -112,6 +113,7 @@ class DryRunDialog(QDialog):
                 self.thread.quit()
                 self.thread.wait(2000)
         except Exception:
+            _log_caught('closeEvent@L114')
             pass
         super().closeEvent(event)
 
@@ -126,8 +128,11 @@ class DryRunDialog(QDialog):
                 if p and hasattr(p, 'press_esc_checkbox') and p.press_esc_checkbox.isChecked():
                     self.code_editor.hide_completer()
             except Exception:
+                _log_caught('on_char@L128')
                 pass
             self.code_editor.insertPlainText('\n')
         else:
             self.code_editor.insertPlainText(ch)
             self.code_editor.maybe_show_completions()
+
+

@@ -8,6 +8,7 @@ translate_hotkey_for_pynput(hotkey: str) -> str
     (e.g. "<ctrl>+<alt>+s").  Returns an empty string when the input is empty
     or cannot be parsed.
 """
+from nexustyper.services.logging_setup import _log_caught
 
 from PyQt5.QtGui import QKeySequence
 
@@ -33,6 +34,7 @@ def translate_hotkey_for_pynput(hotkey) -> str:
     try:
         hotkey = QKeySequence(str(hotkey)).toString(QKeySequence.PortableText)
     except Exception:
+        _log_caught('translate_hotkey_for_pynput@L35')
         hotkey = str(hotkey)
 
     hotkey = (hotkey or "").strip()
@@ -77,3 +79,5 @@ def translate_hotkey_for_pynput(hotkey) -> str:
         out.append(token)
 
     return '+'.join(out)
+
+

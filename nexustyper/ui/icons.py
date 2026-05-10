@@ -4,6 +4,7 @@
 stroke-width 2, round caps/joins).  Pass a name to ``make_lucide_icon`` to
 get a tinted ``QIcon``.
 """
+from nexustyper.services.logging_setup import _log_caught
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon, QPixmap, QPainter
@@ -62,6 +63,7 @@ def make_lucide_icon(name, color="#94A3B8", size=20, stroke_width=1.8):
     try:
         from PyQt5.QtSvg import QSvgRenderer
     except Exception:
+        _log_caught('make_lucide_icon@L64')
         return QIcon()
     pix = QPixmap(size, size)
     pix.fill(Qt.transparent)
@@ -73,3 +75,5 @@ def make_lucide_icon(name, color="#94A3B8", size=20, stroke_width=1.8):
     finally:
         painter.end()
     return QIcon(pix)
+
+

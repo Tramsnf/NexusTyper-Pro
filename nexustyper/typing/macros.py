@@ -19,6 +19,7 @@ when to call them.
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 import re
 from typing import Callable, Optional, Set, Tuple
@@ -41,6 +42,7 @@ def strip_macros(text: str) -> str:
     try:
         return _MACRO_STRIP_RE.sub('', text)
     except Exception:
+        _log_caught('strip_macros@L43')
         return text
 
 
@@ -71,6 +73,7 @@ def validate_macro(
             t = min(t, 60.0)
             return True, None, (cmd, str(t))
         except Exception:
+            _log_caught('validate_macro@L73')
             return False, f"Invalid PAUSE duration: '{p}'", None
     elif cmd == 'CLICK':
         try:
@@ -82,9 +85,11 @@ def validate_macro(
                     if not (0 <= x < w and 0 <= y < h):
                         return False, f"CLICK coordinates out of bounds: {x},{y}", None
                 except Exception:
+                    _log_caught('validate_macro@L84')
                     pass
             return True, None, (cmd, f"{x},{y}")
         except Exception:
+            _log_caught('validate_macro@L87')
             return False, f"Invalid CLICK params, expected 'x,y' got '{p}'", None
     elif cmd == 'PRESS':
         key = p.lower()
@@ -113,12 +118,17 @@ def execute_macro(
     platform-specific hints, e.g. macOS Accessibility errors).
     """
     import pyautogui  # local import: keeps this module importable in tests
+    # Local import: matches the ``import pyautogui`` style above and avoids
+    # forcing the keyboard module's ctypes setup at validation time.
+    from nexustyper.typing.keyboard import kbd
 
     if command == 'PAUSE':
         sleep_fn(float(params))
     elif command == 'PRESS':
-        # validate_macro already lower()/strip()-ed the key name
-        pyautogui.press(params)
+        # validate_macro already lower()/strip()-ed the key name. Routed
+        # through the keyboard shim so PRESS macros also reach the remote
+        # session in RDP-compat mode.
+        kbd.press(params)
     elif command == 'CLICK':
         x, y = params.split(',')
         pyautogui.click(int(x), int(y))

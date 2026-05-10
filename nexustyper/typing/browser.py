@@ -8,6 +8,7 @@ This module is Qt-free; it just classifies titles and returns data.
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 import re
 from typing import Dict
@@ -66,6 +67,7 @@ def looks_like_code_quick(text: str) -> bool:
     try:
         t = (text or "").strip()
     except Exception:
+        _log_caught('looks_like_code_quick@L68')
         return False
     if not t:
         return False

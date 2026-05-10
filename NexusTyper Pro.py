@@ -17,6 +17,7 @@ try:
     # Close the handle on clean exit so Windows can rotate the log file.
     atexit.register(_FAULTHANDLER_FILE.close)
 except OSError:
+    _log_caught('module@L19')
     pass
 
 import time
@@ -43,8 +44,6 @@ from PyQt5.QtGui import (
 )
 import json
 import html
-import logging
-from logging.handlers import RotatingFileHandler
 
 # --- Modular nexustyper package imports (refactor v3.6) -------------------
 from nexustyper.constants import (
@@ -85,6 +84,9 @@ from nexustyper.services.file_ingestion import (
     supported_save_filter,
     FileIngestionError,
 )
+from nexustyper.services.logging_setup import (
+    LOG_DIR, LOG_FILE, _log_caught, install_global_handlers, logger,
+)
 from nexustyper.ui.widgets.text_edit import PasteCleaningTextEdit, CodeEditor
 from nexustyper.ui.dialogs.dry_run import DryRunDialog
 from nexustyper.ui.icons import make_lucide_icon
@@ -108,15 +110,11 @@ except ImportError as e:
 
 
 # --- Logging Setup ---
-LOG_DIR = os.path.join(os.path.expanduser('~'), '.nexustyper_pro', 'logs')
-os.makedirs(LOG_DIR, exist_ok=True)
-LOG_FILE = os.path.join(LOG_DIR, 'app.log')
-logger = logging.getLogger('nexustyper')
-if not logger.handlers:
-    logger.setLevel(logging.INFO)
-    handler = RotatingFileHandler(LOG_FILE, maxBytes=512*1024, backupCount=3)
-    handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s'))
-    logger.addHandler(handler)
+# Logger, LOG_DIR, LOG_FILE, and the _log_caught helper are configured in
+# nexustyper.services.logging_setup so all modules share one logger and one
+# rotating file. Global hooks (sys.excepthook / threading.excepthook /
+# qInstallMessageHandler) are installed below in the __main__ block, after
+# QApplication is built but before the main window is shown.
 
 
 # TypingWorker handles the typing automation in a separate thread
@@ -146,6 +144,7 @@ class AutoTyperApp(QWidget):
         try:
             logger.info(f"App started v{APP_VERSION} on {platform.system()} {platform.release()} | Python {platform.python_version()}")
         except Exception:
+            _log_caught('__init__@L145')
             pass
 
         self.check_macos_permissions(prompt=True, show_dialog=False)
@@ -156,6 +155,7 @@ class AutoTyperApp(QWidget):
         try:
             QTimer.singleShot(2500, lambda: self._start_update_check(verbose=False))
         except Exception:
+            _log_caught('__init__@L155')
             pass
 
 
@@ -185,10 +185,12 @@ class AutoTyperApp(QWidget):
             if QDesktopServices.openUrl(QUrl(MACOS_ACCESSIBILITY_SETTINGS_URL)):
                 return
         except Exception:
+            _log_caught('_open_macos_accessibility_settings@L184')
             pass
         try:
             subprocess.Popen(["open", MACOS_ACCESSIBILITY_SETTINGS_URL])
         except Exception:
+            _log_caught('_open_macos_accessibility_settings@L188')
             pass
 
     def _show_macos_permissions_dialog(self, title, blocking=False):
@@ -209,6 +211,7 @@ class AutoTyperApp(QWidget):
             try:
                 self.status_label.setText("Status: macOS Accessibility permission required.")
             except Exception:
+                _log_caught('_show_macos_permissions_dialog@L208')
                 pass
 
     def check_macos_permissions(self, prompt=False, show_dialog=True):
@@ -218,6 +221,7 @@ class AutoTyperApp(QWidget):
         try:
             logger.info(f"macOS Accessibility trusted={trusted}")
         except Exception:
+            _log_caught('check_macos_permissions@L217')
             pass
         if not trusted and show_dialog:
             self._show_macos_permissions_dialog("macOS permission required")
@@ -274,6 +278,7 @@ class AutoTyperApp(QWidget):
         try:
             settings_action.setShortcut(QKeySequence.Preferences)
         except Exception:
+            _log_caught('init_ui@L273')
             pass
         file_menu.addAction(settings_action)
         about_action = QAction('&About...', self)
@@ -327,6 +332,7 @@ class AutoTyperApp(QWidget):
         try:
             self.toggle_sidebar_action.setShortcut(QKeySequence("Ctrl+\\"))
         except Exception:
+            _log_caught('init_ui@L326')
             pass
         self.toggle_sidebar_action.triggered.connect(self._toggle_sidebar)
         view_menu.addAction(self.toggle_sidebar_action)
@@ -346,6 +352,7 @@ class AutoTyperApp(QWidget):
             open_action.setIcon(self.style().standardIcon(QStyle.SP_DialogOpenButton))
             save_action.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
         except Exception:
+            _log_caught('init_ui@L345')
             pass
 
         main_layout = QVBoxLayout(self)
@@ -354,11 +361,13 @@ class AutoTyperApp(QWidget):
             main_layout.setContentsMargins(0, 0, 0, 0)
             main_layout.setSpacing(0)
         except Exception:
+            _log_caught('init_ui@L353')
             pass
         try:
             self.setMinimumSize(980, 640)
             self.resize(1240, 780)
         except Exception:
+            _log_caught('init_ui@L358')
             pass
 
         # --- Masthead: wordmark + persona pill + global hotkey hint ---
@@ -434,6 +443,7 @@ class AutoTyperApp(QWidget):
             self.settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             self.settings_scroll.setMinimumWidth(260)
         except Exception:
+            _log_caught('init_ui@L433')
             pass
         settings_container = QWidget(self.settings_scroll)
         self.settings_scroll.setWidget(settings_container)
@@ -621,6 +631,7 @@ class AutoTyperApp(QWidget):
             tools_layout.setContentsMargins(0, 0, 0, 0)
             tools_layout.setSpacing(6)
         except Exception:
+            _log_caught('init_ui@L620')
             pass
 
         self.open_tool_button = QToolButton(self)
@@ -690,6 +701,7 @@ class AutoTyperApp(QWidget):
                 b.setIconSize(QSize(18, 18))
                 b.setMinimumSize(64, 48)
             except Exception:
+                _log_caught('init_ui@L689')
                 pass
 
         right_layout.addLayout(tools_layout)
@@ -708,6 +720,7 @@ class AutoTyperApp(QWidget):
         try:
             self.code_text_edit.setLineWrapMode(QPlainTextEdit.NoWrap)
         except Exception:
+            _log_caught('init_ui@L707')
             pass
         self.code_text_edit.setPlaceholderText(
             "Code mode: paste code/snippets — whitespace is preserved.\n"
@@ -832,6 +845,7 @@ class AutoTyperApp(QWidget):
                 b.setMinimumHeight(40)
                 b.setCursor(Qt.PointingHandCursor)
             except Exception:
+                _log_caught('init_ui@L831')
                 pass
         run_btns.addWidget(self.start_button, 2)
         run_btns.addWidget(self.pause_button, 2)
@@ -878,12 +892,14 @@ class AutoTyperApp(QWidget):
             # Reasonable defaults; user can resize and it's persisted.
             self.splitter.setSizes([360, 880])
         except Exception:
+            _log_caught('init_ui@L877')
             pass
         # Track last open width so toggle restores it after a collapse.
         self._sidebar_last_width = 360
         try:
             self.splitter.splitterMoved.connect(self._on_splitter_moved)
         except Exception:
+            _log_caught('init_ui@L883')
             pass
 
         # Text update debounce for large inputs
@@ -934,6 +950,7 @@ class AutoTyperApp(QWidget):
         try:
             idx = int(self.input_tabs.currentIndex())
         except Exception:
+            _log_caught('_active_editor@L933')
             idx = 0
         return self.code_text_edit if idx == 1 else self.plain_text_edit
 
@@ -944,24 +961,28 @@ class AutoTyperApp(QWidget):
         try:
             return "Code" if int(self.input_tabs.currentIndex()) == 1 else "Plain Text"
         except Exception:
+            _log_caught('input_mode_name@L943')
             return "Plain Text"
 
     def get_input_text(self) -> str:
         try:
             return self._active_editor().toPlainText()
         except Exception:
+            _log_caught('get_input_text@L949')
             return ""
 
     def set_input_text(self, text: str):
         try:
             self._active_editor().setPlainText(text or "")
         except Exception:
+            _log_caught('set_input_text@L955')
             pass
 
     def clear_text(self):
         try:
             self._active_editor().clear()
         except Exception:
+            _log_caught('clear_text@L961')
             pass
 
     def _input_mode_key(self, idx: int) -> str:
@@ -990,6 +1011,7 @@ class AutoTyperApp(QWidget):
                 self._suppress_persona_changed = True
                 self.persona_combo.setCurrentText(str(persona))
             except Exception:
+                _log_caught('_apply_input_mode_preset@L989')
                 pass
             finally:
                 self._suppress_persona_changed = False
@@ -1008,6 +1030,7 @@ class AutoTyperApp(QWidget):
             try:
                 cb.setChecked(bool((preset or {}).get(key, default)))
             except Exception:
+                _log_caught('_set@L1007')
                 pass
 
         _set(self.use_shift_enter_checkbox, "use_shift_enter", False)
@@ -1022,6 +1045,7 @@ class AutoTyperApp(QWidget):
             self.min_wpm_slider.setValue(int((preset or {}).get("min_wpm", self.min_wpm_slider.value())))
             self.max_wpm_slider.setValue(int((preset or {}).get("max_wpm", self.max_wpm_slider.value())))
         except Exception:
+            _log_caught('_apply_input_mode_preset@L1021')
             pass
         self.update_speed_labels()
 
@@ -1064,11 +1088,13 @@ class AutoTyperApp(QWidget):
             self.settings.beginGroup(f"ModePresets/{key}")
             return bool(self.settings.childKeys())
         except Exception:
+            _log_caught('_has_input_mode_preset@L1063')
             return False
         finally:
             try:
                 self.settings.endGroup()
             except Exception:
+                _log_caught('_has_input_mode_preset@L1068')
                 pass
 
     def _write_input_mode_preset(self, idx: int, preset: dict):
@@ -1078,11 +1104,13 @@ class AutoTyperApp(QWidget):
             for k, v in (preset or {}).items():
                 self.settings.setValue(k, v)
         except Exception:
+            _log_caught('_write_input_mode_preset@L1077')
             pass
         finally:
             try:
                 self.settings.endGroup()
             except Exception:
+                _log_caught('_write_input_mode_preset@L1082')
                 pass
 
     def _save_input_mode_preset(self, idx: int):
@@ -1093,11 +1121,13 @@ class AutoTyperApp(QWidget):
             for k, v in preset.items():
                 self.settings.setValue(k, v)
         except Exception:
+            _log_caught('_save_input_mode_preset@L1092')
             pass
         finally:
             try:
                 self.settings.endGroup()
             except Exception:
+                _log_caught('_save_input_mode_preset@L1097')
                 pass
 
     def _load_input_mode_preset(self, idx: int, apply_defaults: bool = True):
@@ -1122,11 +1152,13 @@ class AutoTyperApp(QWidget):
                     "max_wpm": self.settings.value("max_wpm", self.max_wpm_slider.value(), type=int),
                 }
         except Exception:
+            _log_caught('_load_input_mode_preset@L1121')
             preset = None
         finally:
             try:
                 self.settings.endGroup()
             except Exception:
+                _log_caught('_load_input_mode_preset@L1126')
                 pass
 
         if preset is None and apply_defaults:
@@ -1140,26 +1172,31 @@ class AutoTyperApp(QWidget):
         try:
             old_index = int(getattr(self, "_last_input_tab_index", 0))
         except Exception:
+            _log_caught('on_input_mode_changed@L1139')
             old_index = 0
         try:
             new_index = int(index)
         except Exception:
+            _log_caught('on_input_mode_changed@L1143')
             new_index = int(self.input_tabs.currentIndex())
 
         # Save current settings for the mode we're leaving, then restore settings for the mode we're entering.
         try:
             self._save_input_mode_preset(old_index)
         except Exception:
+            _log_caught('on_input_mode_changed@L1149')
             pass
         try:
             self._load_input_mode_preset(new_index, apply_defaults=True)
         except Exception:
+            _log_caught('on_input_mode_changed@L1153')
             pass
 
         self._last_input_tab_index = new_index
         try:
             self.settings.setValue("inputMode", new_index)
         except Exception:
+            _log_caught('on_input_mode_changed@L1159')
             pass
         self.schedule_text_update()
 
@@ -1170,6 +1207,7 @@ class AutoTyperApp(QWidget):
                 self._text_update_timer.start(150)
                 return
         except Exception:
+            _log_caught('schedule_text_update@L1169')
             pass
         self.refresh_text_insights()
 
@@ -1177,28 +1215,34 @@ class AutoTyperApp(QWidget):
         try:
             self.update_preview()
         except Exception:
+            _log_caught('refresh_text_insights@L1176')
             pass
         try:
             self.update_text_stats()
         except Exception:
+            _log_caught('refresh_text_insights@L1180')
             pass
         try:
             self.update_processed_preview()
         except Exception:
+            _log_caught('refresh_text_insights@L1184')
             pass
         try:
             self.update_mode_note()
         except Exception:
+            _log_caught('refresh_text_insights@L1188')
             pass
         try:
             self._update_start_button_enabled()
         except Exception:
+            _log_caught('refresh_text_insights@L1192')
             pass
 
     def on_macros_toggled(self, checked: bool):
         try:
             self.confirm_click_checkbox.setEnabled(bool(checked))
         except Exception:
+            _log_caught('on_macros_toggled@L1198')
             pass
         self.schedule_text_update()
 
@@ -1211,6 +1255,7 @@ class AutoTyperApp(QWidget):
             try:
                 self.worker.pause()
             except Exception:
+                _log_caught('pause_or_resume@L1210')
                 pass
 
     def _set_ui_for_paused(self, paused: bool):
@@ -1219,6 +1264,7 @@ class AutoTyperApp(QWidget):
         try:
             self.settings_tabs.setEnabled(enable)
         except Exception:
+            _log_caught('_set_ui_for_paused@L1218')
             pass
         for w in (
             getattr(self, "menu_bar", None),
@@ -1235,11 +1281,13 @@ class AutoTyperApp(QWidget):
             try:
                 w.setEnabled(enable)
             except Exception:
+                _log_caught('_set_ui_for_paused@L1234')
                 pass
         try:
             for ed in self._all_editors():
                 ed.setEnabled(enable)
         except Exception:
+            _log_caught('_set_ui_for_paused@L1239')
             pass
 
     def _apply_runtime_settings_to_worker(self):
@@ -1249,6 +1297,7 @@ class AutoTyperApp(QWidget):
         try:
             self.worker.update_speed_range(self.min_wpm_slider.value(), self.max_wpm_slider.value())
         except Exception:
+            _log_caught('_apply_runtime_settings_to_worker@L1248')
             pass
         try:
             self.worker.add_mistakes = bool(self.add_mistakes_checkbox.isChecked())
@@ -1266,6 +1315,7 @@ class AutoTyperApp(QWidget):
             blocked = (self.blocked_apps_edit.text() or "").strip()
             self.worker.blocked_apps = [b.strip().lower() for b in blocked.split(",") if b.strip()]
         except Exception:
+            _log_caught('_apply_runtime_settings_to_worker@L1265')
             pass
 
     def _start_resume_countdown(self, seconds: int = 4):
@@ -1280,11 +1330,13 @@ class AutoTyperApp(QWidget):
             self.pause_button.setText(f"CANCEL ({seconds})")
             self.pause_button.setIcon(self.style().standardIcon(QStyle.SP_DialogCancelButton))
         except Exception:
+            _log_caught('_start_resume_countdown@L1279')
             pass
         self.status_label.setText(f"Status: Resuming in {seconds}…")
         try:
             self._resume_countdown_timer.start()
         except Exception:
+            _log_caught('_start_resume_countdown@L1284')
             pass
 
     def _cancel_resume_countdown(self, silent: bool = False):
@@ -1295,17 +1347,20 @@ class AutoTyperApp(QWidget):
         try:
             self._resume_countdown_timer.stop()
         except Exception:
+            _log_caught('_cancel_resume_countdown@L1294')
             pass
         if not silent:
             try:
                 self.status_label.setText("Status: Resume canceled.")
             except Exception:
+                _log_caught('_cancel_resume_countdown@L1299')
                 pass
         # Restore paused UI affordance
         try:
             self.pause_button.setText("RESUME")
             self.pause_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
         except Exception:
+            _log_caught('_cancel_resume_countdown@L1305')
             pass
 
     def _on_resume_countdown_tick(self):
@@ -1317,6 +1372,7 @@ class AutoTyperApp(QWidget):
         try:
             remaining = int(self._resume_countdown_remaining) - 1
         except Exception:
+            _log_caught('_on_resume_countdown_tick@L1316')
             remaining = 0
         self._resume_countdown_remaining = remaining
         if remaining <= 0:
@@ -1328,19 +1384,23 @@ class AutoTyperApp(QWidget):
             try:
                 self.status_label.setText("Status: Resuming…")
             except Exception:
+                _log_caught('_on_resume_countdown_tick@L1327')
                 pass
             try:
                 self.worker.resume()
             except Exception:
+                _log_caught('_on_resume_countdown_tick@L1331')
                 pass
             return
         try:
             self.status_label.setText(f"Status: Resuming in {remaining}…")
         except Exception:
+            _log_caught('_on_resume_countdown_tick@L1336')
             pass
         try:
             self.pause_button.setText(f"CANCEL ({remaining})")
         except Exception:
+            _log_caught('_on_resume_countdown_tick@L1340')
             pass
 
     def _update_start_button_enabled(self):
@@ -1364,6 +1424,7 @@ class AutoTyperApp(QWidget):
         try:
             self.status_badge.setStyleSheet(f"background-color: {color}; border-radius: 6px;")
         except Exception:
+            _log_caught('_set_status_state@L1363')
             pass
 
     def on_worker_status(self, text: str):
@@ -1387,6 +1448,7 @@ class AutoTyperApp(QWidget):
         try:
             return bool(self.enable_macros_checkbox.isChecked())
         except Exception:
+            _log_caught('_macros_enabled@L1386')
             return True
 
     def _strip_macros_ui(self, text: str) -> str:
@@ -1395,6 +1457,7 @@ class AutoTyperApp(QWidget):
         try:
             return re.sub(r"(?i)\{\{(?:PAUSE|PRESS|CLICK|COMMENT):.*?\}\}", "", text)
         except Exception:
+            _log_caught('_strip_macros_ui@L1394')
             return text
 
     def _extract_pause_seconds(self, text: str) -> float:
@@ -1406,11 +1469,13 @@ class AutoTyperApp(QWidget):
                 try:
                     t = float((m.group(1) or "").strip())
                 except Exception:
+                    _log_caught('_extract_pause_seconds@L1405')
                     continue
                 if t <= 0:
                     continue
                 total += min(t, 60.0)
         except Exception:
+            _log_caught('_extract_pause_seconds@L1410')
             pass
         return total
 
@@ -1424,6 +1489,7 @@ class AutoTyperApp(QWidget):
                 if key in counts:
                     counts[key] += 1
         except Exception:
+            _log_caught('_count_macros@L1423')
             pass
         return counts
 
@@ -1466,6 +1532,7 @@ class AutoTyperApp(QWidget):
         try:
             non_ascii = sum(1 for ch in text if ord(ch) > 0x7F)
         except Exception:
+            _log_caught('update_text_stats@L1465')
             non_ascii = 0
         macro_counts = self._count_macros(text)
         pause_total = self._extract_pause_seconds(text)
@@ -1493,6 +1560,7 @@ class AutoTyperApp(QWidget):
         try:
             code_input = int(self.input_tabs.currentIndex()) == 1
         except Exception:
+            _log_caught('update_processed_preview@L1492')
             code_input = False
 
         sample_lines = []
@@ -1543,6 +1611,7 @@ class AutoTyperApp(QWidget):
             if self.ime_friendly_checkbox.isChecked() and not self.unicode_hex_checkbox.isChecked():
                 notes.append("IME-friendly is on: uses paste instead of per-key typing.")
         except Exception:
+            _log_caught('update_mode_note@L1542')
             pass
         if hasattr(self, "compliance_mode_checkbox") and self.compliance_mode_checkbox.isChecked():
             notes.append("Compliance Mode is on: typing auto-pauses in blocked apps.")
@@ -1556,9 +1625,11 @@ class AutoTyperApp(QWidget):
             editor.setTextCursor(cursor)
             editor.setFocus()
         except Exception:
+            _log_caught('_insert_at_cursor@L1555')
             try:
                 editor.insertPlainText(text)
             except Exception:
+                _log_caught('_insert_at_cursor@L1558')
                 pass
 
     def insert_pause_macro(self):
@@ -1610,11 +1681,13 @@ class AutoTyperApp(QWidget):
         try:
             self.input_tabs.setEnabled(not is_running)
         except Exception:
+            _log_caught('set_ui_for_running@L1609')
             pass
         for ed in self._all_editors():
             try:
                 ed.setEnabled(not is_running)
             except Exception:
+                _log_caught('set_ui_for_running@L1614')
                 pass
         self.menu_bar.setEnabled(not is_running)
         self.open_tool_button.setEnabled(not is_running)
@@ -1639,6 +1712,7 @@ class AutoTyperApp(QWidget):
         try:
             self.toggle_persona_controls()
         except Exception:
+            _log_caught('on_persona_changed@L1638')
             pass
         self.schedule_text_update()
 
@@ -1649,6 +1723,7 @@ class AutoTyperApp(QWidget):
         try:
             in_plain = int(self.input_tabs.currentIndex()) == 0
         except Exception:
+            _log_caught('toggle_persona_controls@L1648')
             in_plain = True
 
         def _maybe_enable_unicode_hex_default():
@@ -1657,6 +1732,7 @@ class AutoTyperApp(QWidget):
                     if self.unicode_hex_checkbox.isEnabled():
                         self.unicode_hex_checkbox.setChecked(True)
                 except Exception:
+                    _log_caught('_maybe_enable_unicode_hex_default@L1656')
                     pass
 
         def _apply_plain_defaults(is_fast_messenger: bool):
@@ -1687,34 +1763,42 @@ class AutoTyperApp(QWidget):
             try:
                 self.list_mode_radio.setChecked(True)
             except Exception:
+                _log_caught('_apply_code_defaults@L1686')
                 pass
             try:
                 self.use_shift_enter_checkbox.setChecked(False)
             except Exception:
+                _log_caught('_apply_code_defaults@L1690')
                 pass
             try:
                 self.press_esc_checkbox.setChecked(True)
             except Exception:
+                _log_caught('_apply_code_defaults@L1694')
                 pass
             try:
                 self.type_tabs_checkbox.setChecked(False)
             except Exception:
+                _log_caught('_apply_code_defaults@L1698')
                 pass
             try:
                 self.add_mistakes_checkbox.setChecked(False)
             except Exception:
+                _log_caught('_apply_code_defaults@L1702')
                 pass
             try:
                 self.pause_on_punct_checkbox.setChecked(True)
             except Exception:
+                _log_caught('_apply_code_defaults@L1706')
                 pass
             try:
                 self.mouse_jitter_checkbox.setChecked(False)
             except Exception:
+                _log_caught('_apply_code_defaults@L1710')
                 pass
             try:
                 self.ime_friendly_checkbox.setChecked(False)
             except Exception:
+                _log_caught('_apply_code_defaults@L1714')
                 pass
 
         if not in_plain:
@@ -1780,8 +1864,10 @@ class AutoTyperApp(QWidget):
                         x, y = int(xs.strip()), int(ys.strip())
                         coords.append((x, y))
                     except Exception:
+                        _log_caught('start_typing@L1779')
                         invalid += 1
             except Exception:
+                _log_caught('start_typing@L1781')
                 coords = []
                 invalid = 0
             if coords:
@@ -1794,6 +1880,7 @@ class AutoTyperApp(QWidget):
                     if laps > 1:
                         lap_note = f"\n\nThese CLICK macros will repeat each lap (laps: {laps})."
                 except Exception:
+                    _log_caught('start_typing@L1793')
                     pass
                 msg = (
                     "This run contains CLICK macros, which will move/click your mouse.\n\n"
@@ -1811,6 +1898,7 @@ class AutoTyperApp(QWidget):
             if started_from_gui:
                 source_app = self._get_active_window_identity_main()
         except Exception:
+            _log_caught('start_typing@L1810')
             started_from_gui = False
             source_app = ""
 
@@ -1822,6 +1910,7 @@ class AutoTyperApp(QWidget):
         try:
             self.progress_bar.setMaximum(max(1, self._compute_output_chars_per_lap_ui(text) * self.laps_spin.value()))
         except Exception:
+            _log_caught('start_typing@L1821')
             self.progress_bar.setMaximum(len(text) * self.laps_spin.value())
         
         newline_mode = self._get_selected_newline_mode()
@@ -1835,19 +1924,24 @@ class AutoTyperApp(QWidget):
                 try:
                     self.status_label.setText("Status: Tip — enable IME-friendly for Unicode/math if characters drop.")
                 except Exception:
+                    _log_caught('start_typing@L1834')
                     pass
         except Exception:
+            _log_caught('start_typing@L1836')
             pass
 
+        rdp_default = "auto" if platform.system() == "Windows" else "off"
+        kbd_rdp_mode = str(self.settings.value("rdpKeyboardMode", rdp_default))
+
         worker_opts = {
-            'min_wpm': self.min_wpm_slider.value(), 
+            'min_wpm': self.min_wpm_slider.value(),
             'max_wpm': self.max_wpm_slider.value(),
-            'type_tabs': self.type_tabs_checkbox.isChecked(), 
-            'typing_persona': self.persona_combo.currentText(), 
-            'add_mistakes': self.add_mistakes_checkbox.isChecked(), 
-            'pause_on_punct': self.pause_on_punct_checkbox.isChecked(), 
-            'newline_mode': newline_mode, 
-            'use_shift_enter': self.use_shift_enter_checkbox.isChecked(), 
+            'type_tabs': self.type_tabs_checkbox.isChecked(),
+            'typing_persona': self.persona_combo.currentText(),
+            'add_mistakes': self.add_mistakes_checkbox.isChecked(),
+            'pause_on_punct': self.pause_on_punct_checkbox.isChecked(),
+            'newline_mode': newline_mode,
+            'use_shift_enter': self.use_shift_enter_checkbox.isChecked(),
             'mouse_jitter': self.mouse_jitter_checkbox.isChecked(),
             'press_esc': self.press_esc_checkbox.isChecked(),
             'ime_friendly': self.ime_friendly_checkbox.isChecked(),
@@ -1858,12 +1952,14 @@ class AutoTyperApp(QWidget):
             'enable_macros': enable_macros,
             'started_from_gui': started_from_gui,
             'source_app': source_app,
+            'kbd_rdp_mode': kbd_rdp_mode,
         }
 
         # Log start
         try:
-            logger.info(f"Typing start | persona={self.persona_combo.currentText()} mode={newline_mode} min={self.min_wpm_slider.value()} max={self.max_wpm_slider.value()} ime={self.ime_friendly_checkbox.isChecked()} laps={self.laps_spin.value()}")
+            logger.info(f"Typing start | persona={self.persona_combo.currentText()} mode={newline_mode} min={self.min_wpm_slider.value()} max={self.max_wpm_slider.value()} ime={self.ime_friendly_checkbox.isChecked()} laps={self.laps_spin.value()} rdp_kbd={kbd_rdp_mode}")
         except Exception:
+            _log_caught('start_typing@L1867')
             pass
         self.thread = QThread()
         self.worker = TypingWorker(text, self.laps_spin.value(), self.delay_spin.value(), **worker_opts)
@@ -1929,6 +2025,7 @@ class AutoTyperApp(QWidget):
         try:
             effective = str(effective).replace("\r\n", "\n").replace("\r", "\n")
         except Exception:
+            _log_caught('estimate_duration_seconds@L1932')
             effective = text
 
         typed_text_for_counts = effective
@@ -1945,6 +2042,7 @@ class AutoTyperApp(QWidget):
             try:
                 raw_lines = str(text).replace("\r\n", "\n").replace("\r", "\n").splitlines()
             except Exception:
+                _log_caught('estimate_duration_seconds@L1948')
                 raw_lines = (text or "").splitlines()
             list_lines_count = len(raw_lines)
             stripped_lines = []
@@ -1971,6 +2069,7 @@ class AutoTyperApp(QWidget):
             try:
                 line_ops = max(1, len(effective.splitlines(True)))
             except Exception:
+                _log_caught('estimate_duration_seconds@L1974')
                 line_ops = 1
             lo = line_ops * 0.06
             hi = line_ops * 0.18
@@ -2002,6 +2101,7 @@ class AutoTyperApp(QWidget):
                     try:
                         newline_count = effective.count("\n")
                     except Exception:
+                        _log_caught('estimate_duration_seconds@L2005')
                         newline_count = 0
                     lo += 0.03 * newline_count
                     hi += 0.03 * newline_count
@@ -2013,6 +2113,7 @@ class AutoTyperApp(QWidget):
                 boundaries = sum(1 for ch in typed_text_for_counts if ch in " \t")
                 eligible = sum(1 for ch in typed_text_for_counts if (ch.lower() in KEY_ADJACENCY))
             except Exception:
+                _log_caught('estimate_duration_seconds@L2016')
                 punct_a = punct_b = boundaries = eligible = 0
 
             if pause_on_punct:
@@ -2048,6 +2149,7 @@ class AutoTyperApp(QWidget):
         try:
             self._cancel_resume_countdown(silent=True)
         except Exception:
+            _log_caught('stop_typing@L2051')
             pass
         if self.worker:
             self.worker.stop()
@@ -2055,6 +2157,7 @@ class AutoTyperApp(QWidget):
         try:
             logger.info("Typing stop requested")
         except Exception:
+            _log_caught('stop_typing@L2058')
             pass
 
     def resume_typing(self):
@@ -2071,6 +2174,7 @@ class AutoTyperApp(QWidget):
         try:
             self._cancel_resume_countdown(silent=True)
         except Exception:
+            _log_caught('on_typing_paused@L2074')
             pass
         # Keep START reserved for starting a new run; use PAUSE/RESUME for pausing.
         self.start_button.setEnabled(False)
@@ -2078,6 +2182,7 @@ class AutoTyperApp(QWidget):
             self.pause_button.setText("RESUME")
             self.pause_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
         except Exception:
+            _log_caught('on_typing_paused@L2081')
             pass
         # Allow tuning settings while paused.
         self._set_ui_for_paused(True)
@@ -2088,6 +2193,7 @@ class AutoTyperApp(QWidget):
         try:
             self._cancel_resume_countdown(silent=True)
         except Exception:
+            _log_caught('on_typing_resumed@L2091')
             pass
         self.is_paused = False
         self.set_ui_for_running(True)
@@ -2096,6 +2202,7 @@ class AutoTyperApp(QWidget):
             self.pause_button.setText("PAUSE")
             self.pause_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
         except Exception:
+            _log_caught('on_typing_resumed@L2099')
             pass
         self.status_label.setText("Status: Resumed typing...")
 
@@ -2104,6 +2211,7 @@ class AutoTyperApp(QWidget):
         try:
             self._cancel_resume_countdown(silent=True)
         except Exception:
+            _log_caught('on_typing_finished@L2107')
             pass
         self.set_ui_for_running(False)
         self.update_button_hotkey_text()
@@ -2111,6 +2219,7 @@ class AutoTyperApp(QWidget):
             self.pause_button.setText("PAUSE")
             self.pause_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
         except Exception:
+            _log_caught('on_typing_finished@L2114')
             pass
         self.wpm_display.setText("Current: --- WPM")
         self.etr_label.setText("ETR: --:--")
@@ -2121,6 +2230,7 @@ class AutoTyperApp(QWidget):
         try:
             logger.info("Typing finished")
         except Exception:
+            _log_caught('on_typing_finished@L2124')
             pass
 
     def show_about_dialog(self):
@@ -2192,6 +2302,7 @@ class AutoTyperApp(QWidget):
                 self.dry_run_dialog.raise_()
                 return
         except Exception:
+            _log_caught('show_dry_run_preview@L2195')
             pass
         self.stop_listener()
         self.dry_run_dialog = DryRunDialog(self)
@@ -2201,6 +2312,7 @@ class AutoTyperApp(QWidget):
             try:
                 self.start_listener()
             except Exception:
+                _log_caught('_cleanup@L2204')
                 pass
             self.dry_run_dialog = None
         self.dry_run_dialog.finished.connect(lambda _=0: _cleanup())
@@ -2258,10 +2370,12 @@ class AutoTyperApp(QWidget):
         try:
             start = QKeySequence(str(start_raw)).toString(QKeySequence.NativeText) or str(start_raw)
         except Exception:
+            _log_caught('update_button_hotkey_text@L2261')
             start = str(start_raw)
         try:
             stop = QKeySequence(str(stop_raw)).toString(QKeySequence.NativeText) or str(stop_raw)
         except Exception:
+            _log_caught('update_button_hotkey_text@L2265')
             stop = str(stop_raw)
         self.start_button.setText(f"START ({start})")
         self.stop_button.setText(f"STOP ({stop})")
@@ -2269,6 +2383,7 @@ class AutoTyperApp(QWidget):
             if hasattr(self, "hotkey_hint_label"):
                 self.hotkey_hint_label.setText(f"⌨  {start}  ·  {stop}")
         except Exception:
+            _log_caught('update_button_hotkey_text@L2272')
             pass
 
     def _build_hotkey_listener(self) -> HotkeyListener:
@@ -2285,6 +2400,7 @@ class AutoTyperApp(QWidget):
             try:
                 major = int(platform.mac_ver()[0].split('.')[0]) if platform.mac_ver()[0] else 0
             except Exception:
+                _log_caught('start_listener@L2288')
                 major = 0
             if major >= 15:
                 default_enable = False
@@ -2319,6 +2435,7 @@ class AutoTyperApp(QWidget):
             try:
                 last = float(self.settings.value("updateCheckLastEpoch", 0.0))
             except Exception:
+                _log_caught('_start_update_check@L2322')
                 last = 0.0
             if (time.time() - last) < 86400:
                 return
@@ -2330,6 +2447,7 @@ class AutoTyperApp(QWidget):
             except RuntimeError:
                 # Wrapper survives but the C++ QThread was deleteLater'd
                 # after the previous check; treat the slot as free.
+                _log_caught('_start_update_check@L2331')
                 pass
         self._update_verbose = bool(verbose)
         self._update_worker = UpdateChecker(UPDATE_FEED_URL, APP_VERSION)
@@ -2359,6 +2477,7 @@ class AutoTyperApp(QWidget):
         try:
             logger.info(f"Update available: {version} (current {APP_VERSION})")
         except Exception:
+            _log_caught('_on_update_available@L2362')
             pass
         msg = QMessageBox(self)
         msg.setWindowTitle("Update available")
@@ -2385,6 +2504,7 @@ class AutoTyperApp(QWidget):
             try:
                 QDesktopServices.openUrl(QUrl(url or UPDATE_DOWNLOAD_PAGE))
             except Exception:
+                _log_caught('_on_update_available@L2388')
                 pass
 
     def _start_installer_download(self, url: str, filename: str):
@@ -2401,6 +2521,7 @@ class AutoTyperApp(QWidget):
             except RuntimeError:
                 # Wrapper survives but the C++ QThread was deleteLater'd
                 # after the previous download; treat the slot as free.
+                _log_caught('_start_installer_download@L2402')
                 pass
 
         downloads = os.path.join(os.path.expanduser("~"), "Downloads")
@@ -2409,6 +2530,7 @@ class AutoTyperApp(QWidget):
                 import tempfile
                 downloads = tempfile.gettempdir()
             except Exception:
+                _log_caught('_start_installer_download@L2412')
                 downloads = os.path.expanduser("~")
         dest = os.path.join(downloads, filename)
 
@@ -2448,10 +2570,12 @@ class AutoTyperApp(QWidget):
             try:
                 logger.info(f"Update installer downloaded: {path}")
             except Exception:
+                _log_caught('on_finished@L2451')
                 pass
             try:
                 QDesktopServices.openUrl(QUrl.fromLocalFile(path))
             except Exception:
+                _log_caught('on_finished@L2455')
                 pass
             QMessageBox.information(
                 self,
@@ -2467,6 +2591,7 @@ class AutoTyperApp(QWidget):
             try:
                 logger.info(f"Update download: {reason}")
             except Exception:
+                _log_caught('on_failed@L2470')
                 pass
             if "canceled" not in reason.lower():
                 QMessageBox.warning(self, "Download failed", reason)
@@ -2496,6 +2621,7 @@ class AutoTyperApp(QWidget):
         try:
             logger.info(f"Update check: {reason}")
         except Exception:
+            _log_caught('_on_update_failed@L2499')
             pass
         if getattr(self, "_update_verbose", False):
             QMessageBox.warning(self, "Update check failed", reason)
@@ -2525,6 +2651,7 @@ class AutoTyperApp(QWidget):
             sizes = self.splitter.sizes()
             total = sum(sizes) if sizes else self.width()
         except Exception:
+            _log_caught('_toggle_sidebar@L2528')
             sizes, total = [0, 0], self.width()
         if hide:
             if sizes and sizes[0] > 1:
@@ -2542,6 +2669,7 @@ class AutoTyperApp(QWidget):
             try:
                 self.toggle_sidebar_action.blockSignals(False)
             except Exception:
+                _log_caught('_toggle_sidebar@L2545')
                 pass
 
     def _animate_splitter(self, start, end, total):
@@ -2550,6 +2678,7 @@ class AutoTyperApp(QWidget):
             try:
                 anim.stop()
             except Exception:
+                _log_caught('_animate_splitter@L2553')
                 pass
         anim = QVariantAnimation(self)
         anim.setStartValue(int(start))
@@ -2562,6 +2691,7 @@ class AutoTyperApp(QWidget):
                 left = int(v)
                 self.splitter.setSizes([left, max(total - left, 1)])
             except Exception:
+                _log_caught('on_value@L2565')
                 pass
 
         anim.valueChanged.connect(on_value)
@@ -2604,12 +2734,14 @@ class AutoTyperApp(QWidget):
                 ("▾  Output preview" if checked else "▸  Output preview")
             )
         except Exception:
+            _log_caught('_on_preview_toggle@L2607')
             pass
 
     def _on_splitter_moved(self, *_):
         try:
             sizes = self.splitter.sizes()
         except Exception:
+            _log_caught('_on_splitter_moved@L2613')
             return
         if not sizes:
             return
@@ -2626,6 +2758,7 @@ class AutoTyperApp(QWidget):
             try:
                 ctrl.blockSignals(False)
             except Exception:
+                _log_caught('_on_splitter_moved@L2629')
                 pass
 
     def populate_profiles_menu(self):
@@ -2800,6 +2933,7 @@ class AutoTyperApp(QWidget):
             prefer_code = ext in self._CODE_EXTENSIONS or bool(text and looks_like_code(text))
             self.input_tabs.setCurrentIndex(1 if prefer_code else 0)
         except Exception:
+            _log_caught('load_text_from_path@L2803')
             pass
         self.set_input_text(text)
 
@@ -2840,6 +2974,7 @@ class AutoTyperApp(QWidget):
             self.input_tabs.setCurrentIndex(1 if int(idx) == 1 else 0)
             self._last_input_tab_index = int(self.input_tabs.currentIndex())
         except Exception:
+            _log_caught('load_settings@L2843')
             pass
         finally:
             self._suppress_input_mode_changed = False
@@ -2861,6 +2996,7 @@ class AutoTyperApp(QWidget):
                         self._sidebar_last_width = left
                     self._on_splitter_moved()
         except Exception:
+            _log_caught('load_settings@L2864')
             pass
         try:
             self.settings.beginGroup("UI")
@@ -2894,17 +3030,20 @@ class AutoTyperApp(QWidget):
             self.enable_macros_checkbox.setChecked(self.settings.value("enable_macros", True, type=bool))
             self.confirm_click_checkbox.setChecked(self.settings.value("confirm_click", True, type=bool))
         except Exception:
+            _log_caught('load_settings@L2897')
             pass
         finally:
             try:
                 self.settings.endGroup()
             except Exception:
+                _log_caught('load_settings@L2902')
                 pass
         # Seed per-input presets for first-time users (backwards compatible with older "UI" settings),
         # then apply the preset for the active tab.
         try:
             current_idx = int(self.input_tabs.currentIndex())
         except Exception:
+            _log_caught('load_settings@L2908')
             current_idx = 0
         try:
             if not self._has_input_mode_preset(current_idx):
@@ -2916,6 +3055,7 @@ class AutoTyperApp(QWidget):
             try:
                 preset_schema = self.settings.value("ModePresets/schemaVersion", 0, type=int)
             except Exception:
+                _log_caught('load_settings@L2919')
                 preset_schema = 0
             if int(preset_schema or 0) < 3:
                 # Code preset: undo forced Paste Mode, ensure default persona.
@@ -2926,12 +3066,14 @@ class AutoTyperApp(QWidget):
                     code_mode = self.settings.value("newline_mode", "", type=str)
                     code_persona = self.settings.value("persona", "", type=str)
                 except Exception:
+                    _log_caught('load_settings@L2929')
                     code_mode = ""
                     code_persona = ""
                 finally:
                     try:
                         self.settings.endGroup()
                     except Exception:
+                        _log_caught('load_settings@L2935')
                         pass
                 if code_mode == "Paste Mode":
                     self._write_input_mode_preset(1, {"newline_mode": "List Mode"})
@@ -2944,11 +3086,13 @@ class AutoTyperApp(QWidget):
                     self.settings.beginGroup("ModePresets/plain")
                     plain_mode = self.settings.value("newline_mode", "", type=str)
                 except Exception:
+                    _log_caught('load_settings@L2947')
                     plain_mode = ""
                 finally:
                     try:
                         self.settings.endGroup()
                     except Exception:
+                        _log_caught('load_settings@L2952')
                         pass
                 if plain_mode == "Smart Newlines":
                     self._write_input_mode_preset(
@@ -2965,10 +3109,12 @@ class AutoTyperApp(QWidget):
                 try:
                     self.settings.setValue("ModePresets/schemaVersion", 3)
                 except Exception:
+                    _log_caught('load_settings@L2968')
                     pass
             self._load_input_mode_preset(current_idx, apply_defaults=True)
             self._last_input_tab_index = current_idx
         except Exception:
+            _log_caught('load_settings@L2972')
             pass
         self.update_speed_labels()
         self.schedule_text_update()
@@ -2977,16 +3123,19 @@ class AutoTyperApp(QWidget):
         try:
             self._save_input_mode_preset(int(self.input_tabs.currentIndex()))
         except Exception:
+            _log_caught('save_settings@L2980')
             pass
         self.settings.setValue("geometry", self.saveGeometry())
         try:
             self.settings.setValue("inputMode", self.input_tabs.currentIndex())
         except Exception:
+            _log_caught('save_settings@L2985')
             pass
         try:
             if hasattr(self, "splitter"):
                 self.settings.setValue("splitterSizes", self.splitter.sizes())
         except Exception:
+            _log_caught('save_settings@L2990')
             pass
         try:
             self.settings.beginGroup("UI")
@@ -3010,11 +3159,13 @@ class AutoTyperApp(QWidget):
             self.settings.setValue("enable_macros", self.enable_macros_checkbox.isChecked())
             self.settings.setValue("confirm_click", self.confirm_click_checkbox.isChecked())
         except Exception:
+            _log_caught('save_settings@L3013')
             pass
         finally:
             try:
                 self.settings.endGroup()
             except Exception:
+                _log_caught('save_settings@L3018')
                 pass
 
     def closeEvent(self, event):
@@ -3025,6 +3176,11 @@ class AutoTyperApp(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    # Install sys.excepthook / threading.excepthook / Qt message handler so
+    # uncaught exceptions in any thread or Qt internals end up in the log
+    # file. Must run after QApplication exists so qInstallMessageHandler is
+    # in place before any Qt warnings fire.
+    install_global_handlers()
 
     try:
         from PyQt5.QtGui import QFont
@@ -3042,6 +3198,7 @@ if __name__ == "__main__":
                     break
         app.setFont(QFont(family, 10))
     except Exception:
+        _log_caught('module@L3050')
         pass
 
     # Rely on Qt window management for stability across platforms

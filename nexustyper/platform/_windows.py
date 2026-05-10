@@ -5,6 +5,7 @@ imports cleanly on macOS and Linux.
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 import os
 
@@ -55,6 +56,7 @@ def _windows_process_name_for_pid(pid: int):
         finally:
             kernel32.CloseHandle(handle)
     except Exception:
+        _log_caught('_windows_process_name_for_pid@L57')
         return None
     return None
 
@@ -96,6 +98,7 @@ def _windows_foreground_window_identity():
             return f"{process_name}:{hwnd_value:x}"
         return f"hwnd:{hwnd_value:x}"
     except Exception:
+        _log_caught('_windows_foreground_window_identity@L98')
         return None
 
 
@@ -119,17 +122,20 @@ class WindowsPlatform(Platform):
             import pyautogui  # type: ignore
             return pyautogui.getActiveWindowTitle() or "Unknown"
         except Exception:
+            _log_caught('active_app_identity@L121')
             return "Unknown"
 
     def release_modifiers_best_effort(self) -> None:
         try:
             import pyautogui  # type: ignore
         except Exception:
+            _log_caught('release_modifiers_best_effort@L127')
             return
         for key in ("shift", "ctrl", "alt", "command", "cmd", "option"):
             try:
                 pyautogui.keyUp(key)
             except Exception:
+                _log_caught('release_modifiers_best_effort@L132')
                 pass
 
     def paste_via_keyboard_shortcut(self) -> None:
@@ -137,8 +143,11 @@ class WindowsPlatform(Platform):
             import pyautogui  # type: ignore
             pyautogui.hotkey("ctrl", "v")
         except Exception:
+            _log_caught('paste_via_keyboard_shortcut@L139')
             pass
 
     def type_unicode_char(self, ch: str) -> bool:
         # No Unicode-Hex input parity on Windows; caller falls back to ASCII.
         return False
+
+

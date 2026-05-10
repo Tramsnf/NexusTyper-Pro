@@ -13,6 +13,7 @@ script used that name.
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 from PyQt5.QtCore import QPoint, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen
@@ -62,6 +63,7 @@ class ChevronSplitterHandle(QSplitterHandle):
                 or (event.pos() - self._press_pos).manhattanLength() > 4
             )
         except Exception:
+            _log_caught('mouseReleaseEvent@L64')
             moved = True
         super().mouseReleaseEvent(event)
         self._press_pos = None
@@ -86,6 +88,7 @@ class ChevronSplitterHandle(QSplitterHandle):
             ss = app.styleSheet() if app else ""
             is_dark = "DARK" in ss[:120].upper() or "#0F172A" in ss[:200]
         except Exception:
+            _log_caught('paintEvent@L88')
             pass
         accent = QColor("#06B6D4")
         rail = QColor("#1E293B" if is_dark else "#E2E8F0")
@@ -158,3 +161,5 @@ ChevronSplitter = ToggleSplitter
 
 
 __all__ = ["ChevronSplitterHandle", "ToggleSplitter", "ChevronSplitter"]
+
+

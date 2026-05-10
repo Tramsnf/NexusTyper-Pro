@@ -7,6 +7,7 @@ the app).
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 import subprocess
 
@@ -24,6 +25,7 @@ class MacOSPlatform(Platform):
                 import Quartz  # type: ignore
             except Exception:
                 # Framework unavailable — fail open.
+                _log_caught('accessibility_trusted@L25')
                 return True
             try:
                 if prompt:
@@ -32,14 +34,17 @@ class MacOSPlatform(Platform):
                 return bool(Quartz.AXIsProcessTrusted())
             except Exception:
                 # Probe failure: fail open so typing isn't blocked.
+                _log_caught('accessibility_trusted@L33')
                 return True
         except Exception:
+            _log_caught('accessibility_trusted@L36')
             return True
 
     def open_privacy_settings(self) -> None:
         try:
             subprocess.Popen(["open", MACOS_ACCESSIBILITY_SETTINGS_URL])
         except Exception:
+            _log_caught('open_privacy_settings@L42')
             pass
 
     def active_app_identity(self) -> str:
@@ -53,23 +58,27 @@ class MacOSPlatform(Platform):
                 if name:
                     return str(name)
         except Exception:
+            _log_caught('active_app_identity@L55')
             pass
         # Fallback to pyautogui's window title.
         try:
             import pyautogui  # type: ignore
             return pyautogui.getActiveWindowTitle() or "Unknown"
         except Exception:
+            _log_caught('active_app_identity@L61')
             return "Unknown"
 
     def release_modifiers_best_effort(self) -> None:
         try:
             import pyautogui  # type: ignore
         except Exception:
+            _log_caught('release_modifiers_best_effort@L67')
             return
         for key in ("shift", "ctrl", "alt", "command", "cmd", "option"):
             try:
                 pyautogui.keyUp(key)
             except Exception:
+                _log_caught('release_modifiers_best_effort@L72')
                 pass
 
     def paste_via_keyboard_shortcut(self) -> None:
@@ -77,6 +86,7 @@ class MacOSPlatform(Platform):
             import pyautogui  # type: ignore
             pyautogui.hotkey("command", "v")
         except Exception:
+            _log_caught('paste_via_keyboard_shortcut@L79')
             pass
 
     def type_unicode_char(self, ch: str) -> bool:
@@ -88,6 +98,7 @@ class MacOSPlatform(Platform):
         try:
             import pyautogui  # type: ignore
         except Exception:
+            _log_caught('type_unicode_char@L90')
             return False
         try:
             cp = ord(ch)
@@ -100,4 +111,7 @@ class MacOSPlatform(Platform):
                 pyautogui.keyUp("option")
             return True
         except Exception:
+            _log_caught('type_unicode_char@L102')
             return False
+
+

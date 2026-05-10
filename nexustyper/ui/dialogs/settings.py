@@ -13,14 +13,15 @@ easy to translate for ``pynput``.
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 import platform
 
 from PyQt5.QtCore import QSettings
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QKeySequenceEdit,
-    QVBoxLayout,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+    QKeySequenceEdit, QVBoxLayout,
 )
 
 
@@ -32,6 +33,7 @@ def _macos_major_version() -> int:
         ver = platform.mac_ver()[0]
         return int(ver.split(".")[0]) if ver else 0
     except Exception:
+        _log_caught('_macos_major_version@L34')
         return 0
 
 
@@ -78,6 +80,29 @@ class SettingsDialog(QDialog):
             )
         form_layout.addRow(self.enable_hotkeys_checkbox)
 
+        # Remote Desktop / virtual desktop compatibility (Windows-only fix).
+        # pyautogui's keystrokes don't reach Chrome Remote Desktop, mstsc,
+        # AnyDesk, etc. because those clients only forward events that carry
+        # a hardware scancode. The shim sends KEYEVENTF_SCANCODE input via
+        # SendInput so typing reaches the remote session.
+        self.rdp_mode_combo = QComboBox(self)
+        self.rdp_mode_combo.addItem("Off (use pyautogui everywhere)", "off")
+        self.rdp_mode_combo.addItem(
+            "Auto (switch when remote desktop is focused)", "auto"
+        )
+        self.rdp_mode_combo.addItem(
+            "Always on (use scancode input everywhere)", "on"
+        )
+        self.rdp_mode_combo.setToolTip(
+            "Routes keystrokes through SendInput with hardware scancodes so they\n"
+            "propagate through Chrome Remote Desktop, mstsc, AnyDesk, TeamViewer,\n"
+            "Parsec, etc. Auto detects the remote-desktop window by title."
+        )
+        if platform.system() != "Windows":
+            self.rdp_mode_combo.setEnabled(False)
+            self.rdp_mode_combo.setToolTip("Windows-only setting.")
+        form_layout.addRow("Remote Desktop compat:", self.rdp_mode_combo)
+
         layout.addLayout(form_layout)
         buttons = QDialogButtonBox(
             QDialogButtonBox.Save | QDialogButtonBox.Cancel
@@ -104,6 +129,12 @@ class SettingsDialog(QDialog):
             self.settings.value("enableGlobalHotkeys", default_enable, type=bool)
         )
 
+        # Remote Desktop compat: Auto on Windows, Off on macOS / Linux.
+        rdp_default = "auto" if platform.system() == "Windows" else "off"
+        rdp_mode = str(self.settings.value("rdpKeyboardMode", rdp_default))
+        idx = self.rdp_mode_combo.findData(rdp_mode)
+        self.rdp_mode_combo.setCurrentIndex(idx if idx >= 0 else 1)
+
     def save_settings(self) -> None:
         # Store hotkeys in PortableText so they round-trip across platforms
         # and are easier to translate for pynput.
@@ -122,7 +153,12 @@ class SettingsDialog(QDialog):
         self.settings.setValue(
             "enableGlobalHotkeys", self.enable_hotkeys_checkbox.isChecked()
         )
+        self.settings.setValue(
+            "rdpKeyboardMode", self.rdp_mode_combo.currentData()
+        )
         self.accept()
 
 
 __all__ = ["SettingsDialog"]
+
+

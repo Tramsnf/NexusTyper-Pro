@@ -12,6 +12,7 @@ must be cheap and idempotent. The two main entry points are:
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 import html
 import re
@@ -95,6 +96,7 @@ def apply_smart_newlines(text: str) -> str:
     try:
         s = str(text).replace("\r\n", "\n").replace("\r", "\n")
     except Exception:
+        _log_caught('apply_smart_newlines@L97')
         return text
 
     # If the input looks like code overall, do not reflow lines.
@@ -126,6 +128,7 @@ def apply_smart_newlines(text: str) -> str:
         if marker_hits >= 2 or symbol_hits >= 18:
             return s
     except Exception:
+        _log_caught('apply_smart_newlines@L128')
         pass
 
     lines = s.split("\n")
@@ -180,3 +183,5 @@ __all__ = [
     "_AI_INVISIBLE_TABLE",
     "_AI_PUNCT_TABLE",
 ]
+
+

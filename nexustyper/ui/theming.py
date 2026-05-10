@@ -12,6 +12,7 @@ The returned dict is module-level cached so repeated calls are cheap.
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 import os
 from typing import Dict
@@ -700,6 +701,7 @@ def ensure_qss_assets() -> Dict[str, str]:
     try:
         from PyQt5.QtSvg import QSvgRenderer
     except Exception:
+        _log_caught('ensure_qss_assets@L702')
         return {}
     base = os.path.join(tempfile.gettempdir(), "nexustyper_qss_assets")
     os.makedirs(base, exist_ok=True)
@@ -763,3 +765,5 @@ def ensure_qss_assets() -> Dict[str, str]:
 
 
 __all__ = ["DARK_STYLESHEET", "LIGHT_STYLESHEET", "ensure_qss_assets"]
+
+
