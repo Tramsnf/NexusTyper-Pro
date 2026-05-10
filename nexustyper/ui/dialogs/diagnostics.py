@@ -80,19 +80,34 @@ class DiagnosticsDialog(QDialog):
             import pyautogui as pag
             from nexustyper.typing.keyboard import kbd
 
+            # User-facing status for the Remote Desktop typing setting.
+            # Avoids leaking internal terms like "scancode" / "pyautogui".
+            mode_label = {
+                "off": "Off",
+                "auto": "Auto",
+                "on": "Always on",
+            }.get(kbd.mode, kbd.mode)
+            if not kbd.scancode_available():
+                rdp_status = "Not supported on this platform"
+            elif kbd.mode == "off":
+                rdp_status = f"{mode_label}"
+            elif kbd.mode == "on":
+                rdp_status = f"{mode_label} (active)"
+            else:  # auto
+                active = (
+                    "active — remote desktop detected"
+                    if kbd.active_backend_name() != "pyautogui"
+                    else "idle — no remote desktop detected"
+                )
+                rdp_status = f"{mode_label} ({active})"
+
             lines = [
                 f"App: {self._app_name} v{self._app_version}",
                 f"OS: {platform.system()} {platform.release()} ({platform.machine()})",
                 f"Python: {platform.python_version()}",
                 f"Qt: {QT_VERSION_STR}",
                 f"PyQt: {PYQT_VERSION_STR}",
-                f"pynput: {getattr(pynput, '__version__', 'unknown')}",
-                f"pyautogui: {getattr(pag, '__version__', 'unknown')}",
-                (
-                    f"Scancode keyboard backend: "
-                    f"{'available' if kbd.scancode_available() else 'unavailable'} "
-                    f"(mode={kbd.mode}, active={kbd.active_backend_name()})"
-                ),
+                f"Remote Desktop typing: {rdp_status}",
                 f"Log file: {self._log_file}",
                 f"Log dir: {self._log_dir}",
             ]
