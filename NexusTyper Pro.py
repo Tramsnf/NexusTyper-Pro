@@ -147,7 +147,29 @@ class AutoTyperApp(QWidget):
             _log_caught('__init__@L145')
             pass
 
-        self.check_macos_permissions(prompt=True, show_dialog=False)
+        # Defer the macOS Accessibility probe until after the main window
+        # paints so the system permission prompt doesn't fight with the
+        # splash, AND so any modal we show appears in front of an already-
+        # visible app instead of behind a not-yet-shown one.
+        # show_dialog=True so denial is loud (modal) instead of silent.
+        try:
+            QTimer.singleShot(
+                400,
+                lambda: self.check_macos_permissions(prompt=True, show_dialog=True),
+            )
+        except Exception:
+            _log_caught("__init__: schedule permission check")
+            self.check_macos_permissions(prompt=True, show_dialog=True)
+
+        # Re-check on window-focus return so a user who granted permission
+        # while switched away (in System Settings) sees the in-app warning
+        # clear next time they refocus, instead of having to restart.
+        try:
+            QApplication.instance().applicationStateChanged.connect(
+                self._on_app_state_changed,
+            )
+        except Exception:
+            _log_caught("__init__: hook applicationStateChanged")
 
         # Background update check — fires at most once a day, silent unless
         # an update is available. Delayed a few seconds so we never block
@@ -218,14 +240,61 @@ class AutoTyperApp(QWidget):
         if self._platform.name != "macos":
             return True
         trusted = self._platform.accessibility_trusted(prompt=prompt)
-        try:
-            logger.info(f"macOS Accessibility trusted={trusted}")
-        except Exception:
-            _log_caught('check_macos_permissions@L217')
-            pass
+        # Only log when state changes, otherwise the focus-driven re-checks
+        # would spam the log every time the user Cmd-Tabs back.
+        if getattr(self, "_last_trust_state", None) != trusted:
+            try:
+                logger.info(f"macOS Accessibility trusted={trusted}")
+            except Exception:
+                _log_caught("check_macos_permissions: log trust state")
+            self._last_trust_state = trusted
+        # Update the persistent status-bar indicator so the user can always
+        # see whether typing will work, not just on Start click.
+        self._update_permission_status(trusted)
         if not trusted and show_dialog:
             self._show_macos_permissions_dialog("macOS permission required")
         return trusted
+
+    def _update_permission_status(self, trusted: bool) -> None:
+        if self._platform.name != "macos":
+            return
+        try:
+            label = getattr(self, "status_label", None)
+            if label is None:
+                return
+            current = label.text() or ""
+            if trusted:
+                # Clear our previous warning if it's still showing; don't
+                # stomp on an unrelated status the worker may have set.
+                if "Accessibility" in current:
+                    label.setText("Status: Ready.")
+            else:
+                label.setText(
+                    "Status: ⚠ macOS Accessibility permission not granted "
+                    "— typing will be blocked. Open Settings → Privacy & "
+                    "Security → Accessibility, enable NexusTyper Pro, then "
+                    "restart the app."
+                )
+        except Exception:
+            _log_caught("_update_permission_status")
+
+    def _on_app_state_changed(self, state) -> None:
+        """Re-check permissions when the user switches back to the app.
+
+        macOS caches the Accessibility trust per-process for some calls,
+        but the AX probe itself returns fresh data — so a user who granted
+        permission in System Settings and then refocused the app will see
+        the warning clear without having to restart the app for *some*
+        permission states. (A full restart is still needed for the rare
+        cases the OS caches; we tell them that in the dialog text.)
+        """
+        try:
+            if int(state) == int(Qt.ApplicationActive):
+                # Quiet re-check — no system prompt, no modal, just refresh
+                # the status-bar indicator.
+                self.check_macos_permissions(prompt=False, show_dialog=False)
+        except Exception:
+            _log_caught("_on_app_state_changed")
 
     def _ensure_macos_typing_permissions(self):
         if self._platform.name != "macos":
