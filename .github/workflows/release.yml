@@ -130,14 +130,14 @@ jobs:
         run: |
           ditto -c -k --sequesterRsrc --keepParent \
             "NexusTyper Pro.app" \
-            "NexusTyper-Pro-${{ github.ref_name }}-macOS.zip"
+            "NexusTyper-Pro-macOS.zip"
 
       - name: Build .pkg installer
         run: |
           ./installers/macos/build-pkg.sh \
             "dist/NexusTyper Pro.app" \
             "$VERSION" \
-            "dist/NexusTyper-Pro-${{ github.ref_name }}-macOS.pkg"
+            "dist/NexusTyper-Pro-macOS.pkg"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -242,7 +242,7 @@ jobs:
 
       - name: Zip the bundle
         run: |
-          $zip = "dist/NexusTyper-Pro-${{ github.ref_name }}-Windows.zip"
+          $zip = "dist/NexusTyper-Pro-Windows.zip"
           Compress-Archive -Path "dist/NexusTyper Pro/*" -DestinationPath $zip
 
       - name: Install Inno Setup
@@ -340,7 +340,7 @@ jobs:
       - name: Tarball
         run: |
           cd dist
-          tar -czf "NexusTyper-Pro-${{ github.ref_name }}-Linux.tar.gz" "NexusTyper-Pro"
+          tar -czf "NexusTyper-Pro-Linux.tar.gz" "NexusTyper-Pro"
 
       - name: Build .deb
         run: |
@@ -348,7 +348,7 @@ jobs:
             "dist/NexusTyper-Pro" \
             "$VERSION" \
             "icon.iconset/icon_256x256.png" \
-            "dist/nexustyper-pro_${VERSION}_amd64.deb"
+            "dist/nexustyper-pro_amd64.deb"
 
       - uses: actions/upload-artifact@v7
         with:
