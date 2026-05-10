@@ -73,11 +73,15 @@ End users grab the latest installable from the **Releases** page on GitHub:
 ships an installer **and** a portable archive per platform — pick the one
 that fits your situation:
 
+Asset filenames are unversioned, so a permalink like
+`https://github.com/Tramsnf/NexusTyper-Pro/releases/latest/download/NexusTyper-Pro-macOS.dmg`
+always resolves to the current release.
+
 | Platform | Recommended (installer) | Portable fallback |
 |---|---|---|
-| macOS    | `NexusTyper-Pro-vX.Y-macOS.pkg` — double-click, run through Apple Installer. | `NexusTyper-Pro-vX.Y-macOS.zip` — drag the `.app` to *Applications*. |
-| Windows  | `NexusTyper-Pro-vX.Y-Windows-Setup.exe` — Inno Setup wizard. | `NexusTyper-Pro-vX.Y-Windows.zip` — run `NexusTyper Pro.exe` from the extracted folder. |
-| Linux    | `nexustyper-pro_X.Y_amd64.deb` — `sudo apt install ./nexustyper-pro_*.deb`. | `NexusTyper-Pro-vX.Y-Linux.tar.gz` — `tar -xzf … && ./NexusTyper-Pro/NexusTyper-Pro`. |
+| macOS    | `NexusTyper-Pro-macOS.dmg` — open and drag *NexusTyper Pro* into *Applications*. | `NexusTyper-Pro-macOS.zip` — drag the `.app` to *Applications*. |
+| Windows  | `NexusTyper-Pro-Windows-Setup.exe` — Inno Setup wizard. | `NexusTyper-Pro-Windows.zip` — run `NexusTyper Pro.exe` from the extracted folder. |
+| Linux    | `nexustyper-pro_amd64.deb` — `sudo apt install ./nexustyper-pro_*.deb`. | `NexusTyper-Pro-Linux.tar.gz` — `tar -xzf … && ./NexusTyper-Pro/NexusTyper-Pro`. |
 
 The installers register the app with the OS (Start menu / Launchpad / app
 launcher), which means **future launches don't trigger the OS "unverified
@@ -93,14 +97,16 @@ Releases are currently **ad-hoc signed but not notarized**. On macOS 15
 (Sequoia) and later, Apple removed the right-click → *Open* shortcut for
 unverified apps, so the path is:
 
-1. Double-click `NexusTyper-Pro-…macOS.pkg`. macOS will block it with
-   *"Apple could not verify…"*.
-2. Open **System Settings → Privacy & Security**, scroll down, find the
-   blocked-app notice, and click **Open Anyway**.
-3. Re-run the .pkg; this time the confirm dialog has an **Open** button.
-   Apple Installer takes over and lands the app in `/Applications`.
-4. Launch from Launchpad — this works without further prompts because the
-   system installer doesn't propagate the download quarantine.
+1. Double-click `NexusTyper-Pro-macOS.dmg`. If notarization is in place
+   for the release, the DMG opens straight into a Finder window showing
+   the *NexusTyper Pro* icon and an *Applications* symlink.
+2. If macOS blocks it with *"Apple could not verify…"*, open
+   **System Settings → Privacy & Security**, scroll down, find the
+   blocked-app notice, and click **Open Anyway**, then re-mount the DMG.
+3. Drag *NexusTyper Pro* onto the *Applications* alias inside the mounted
+   volume. macOS copies the bundle into `/Applications`.
+4. Launch from Launchpad — copying via Finder strips the download
+   quarantine on the .app inside, so future launches don't re-prompt.
 
 If you used the **portable .zip** instead and macOS says the .app is
 "damaged" or refuses to launch, open Terminal in the folder containing the
@@ -156,7 +162,7 @@ under **Settings → Secrets and variables → Actions**:
 | Secret | Used for |
 |---|---|
 | `WINDOWS_PFX_BASE64` / `WINDOWS_PFX_PASSWORD` | Authenticode-sign `NexusTyper Pro.exe` and `Setup.exe` |
-| `APPLE_APPLICATION_CERT_BASE64` / `APPLE_INSTALLER_CERT_BASE64` / `APPLE_CERT_PASSWORD` | Developer ID signing for the .app and .pkg |
+| `APPLE_APPLICATION_CERT_BASE64` / `APPLE_CERT_PASSWORD` | Developer ID signing for the .app and .dmg |
 | `APPLE_DEVELOPER_ID_APPLICATION` / `APPLE_DEVELOPER_ID_INSTALLER` | Full identity strings, e.g. `Developer ID Application: Jane Doe (TEAMID)` |
 | `NOTARIZE_APPLE_ID` / `NOTARIZE_APPLE_PASSWORD` / `NOTARIZE_TEAM_ID` | `xcrun notarytool` credentials (use an app-specific password) |
 
@@ -166,7 +172,7 @@ The app pings GitHub's Releases API at startup (and on demand from
 **Help → Check for Updates…**). When a newer `tag_name` than `APP_VERSION`
 appears, a non-blocking dialog shows the new version's notes with a
 *Download & install* button — that streams the OS-appropriate installer
-(`.pkg` / `Setup.exe` / `.deb`) to your Downloads folder with a progress
+(`.dmg` / `Setup.exe` / `.deb`) to your Downloads folder with a progress
 bar, then hands it to the system installer so you only have to click
 through the wizard. The dialog also keeps an *Open download page* fallback
 for releases that ship only portable archives. Packaged builds include a

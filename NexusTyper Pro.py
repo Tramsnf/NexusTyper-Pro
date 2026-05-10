@@ -180,6 +180,14 @@ class AutoTyperApp(QWidget):
             _log_caught('__init__@L155')
             pass
 
+        # Cleanup pass: remove stale partial downloads and old installer
+        # files from ~/Downloads so they don't accumulate or confuse the
+        # downloader's cache logic. Runs once at startup, idempotent.
+        try:
+            QTimer.singleShot(1500, self._sweep_stale_downloads)
+        except Exception:
+            _log_caught("__init__: schedule download sweep")
+
 
     def _get_active_window_title_main(self):
         return self._platform.active_app_identity()
@@ -490,6 +498,13 @@ class AutoTyperApp(QWidget):
         masthead_divider.setFrameShape(QFrame.HLine)
         masthead_divider.setFixedHeight(1)
         main_layout.addWidget(masthead_divider)
+
+        # Update-available banner. Hidden by default; revealed by
+        # _show_update_banner when the background check finds a newer
+        # release. Sits directly under the masthead so it's the first
+        # thing the user sees on next launch, without overlaying any
+        # work-in-progress dialogs.
+        self._build_update_banner(main_layout)
 
         body_wrap = QWidget(self)
         body_layout = QVBoxLayout(body_wrap)
@@ -2498,6 +2513,10 @@ class AutoTyperApp(QWidget):
         silent unless an update is available. The Help → Check for Updates
         action passes verbose=True so it always reports status.
         """
+        # Remember whether this check was user-initiated so _on_update_available
+        # can decide whether to also pop the modal (verbose) or just the
+        # non-modal banner (background sweep).
+        self._update_check_was_verbose = bool(verbose)
         if not UPDATE_FEED_URL:
             if verbose:
                 QMessageBox.information(self, "Updates",
@@ -2551,7 +2570,15 @@ class AutoTyperApp(QWidget):
             logger.info(f"Update available: {version} (current {APP_VERSION})")
         except Exception:
             _log_caught('_on_update_available@L2362')
-            pass
+
+        # Background (silent) check: show the non-modal banner only.
+        # Foreground (Help → Check for Updates, verbose=True) check:
+        # also show the modal, since the user explicitly clicked
+        # "check" and expects a response.
+        self._show_update_banner(version, url, body, asset_info)
+
+        if not getattr(self, "_update_check_was_verbose", False):
+            return
         msg = QMessageBox(self)
         msg.setWindowTitle("Update available")
         msg.setIcon(QMessageBox.Information)
@@ -2578,7 +2605,141 @@ class AutoTyperApp(QWidget):
                 QDesktopServices.openUrl(QUrl(url or UPDATE_DOWNLOAD_PAGE))
             except Exception:
                 _log_caught('_on_update_available@L2388')
-                pass
+
+    def _sweep_stale_downloads(self) -> None:
+        """Remove leftover NexusTyper download artifacts from ~/Downloads.
+
+        Cleans up:
+          - `*.part` files older than 14 days (interrupted downloads
+            that the user clearly isn't coming back to resume)
+          - matching `*.part.meta` sidecars (always paired with .part;
+            if the .part is gone, the meta is useless)
+          - older versioned installer artifacts that pre-date the
+            unversioned-filename switch (e.g.
+            "NexusTyper-Pro-v3.7.3-macOS.pkg" left over from before
+            v3.7.4 — they'd otherwise sit in Downloads forever)
+
+        Conservative: only touches files whose names start with
+        "NexusTyper-Pro-" or "nexustyper-pro_" so we can't accidentally
+        delete an unrelated download.
+        """
+        try:
+            downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+            if not os.path.isdir(downloads):
+                return
+            now = time.time()
+            stale_after = 14 * 24 * 60 * 60  # 14 days in seconds
+            for name in os.listdir(downloads):
+                low = name.lower()
+                if not (low.startswith("nexustyper-pro-") or low.startswith("nexustyper-pro_")):
+                    continue
+                path = os.path.join(downloads, name)
+                try:
+                    if not os.path.isfile(path):
+                        continue
+                    age = now - os.path.getmtime(path)
+                except OSError:
+                    continue
+                drop = False
+                # Always drop stale partials. The downloader's resume
+                # path keeps recent ones; a .part this old means the
+                # user gave up on that download.
+                if name.endswith(".part") or name.endswith(".part.meta"):
+                    if age > stale_after:
+                        drop = True
+                # Drop *versioned* installer leftovers (the new naming
+                # is unversioned). The "v" or digit before "-macOS" /
+                # "-Windows" / "-Linux" / "_amd64" is the giveaway.
+                elif name.endswith((".pkg", ".dmg", ".exe", ".tar.gz", ".deb", ".zip")):
+                    import re as _re
+                    if _re.search(r"-v?\d", name):
+                        drop = True
+                if drop:
+                    try:
+                        os.remove(path)
+                        logger.info(f"Swept stale download: {name}")
+                    except OSError:
+                        _log_caught("_sweep_stale_downloads: remove")
+        except Exception:
+            _log_caught("_sweep_stale_downloads")
+
+    def _build_update_banner(self, parent_layout):
+        """Insert a hidden update-available banner under the masthead.
+
+        Stays hidden until ``_show_update_banner`` is called from the
+        update-check signal handler. Replaces the previous modal-only
+        flow so users notice updates without the dialog popping over
+        whatever they were doing.
+        """
+        self.update_banner = QFrame(self)
+        self.update_banner.setObjectName("updateBanner")
+        self.update_banner.setVisible(False)
+        bl = QHBoxLayout(self.update_banner)
+        bl.setContentsMargins(12, 8, 12, 8)
+        bl.setSpacing(10)
+        self.update_banner_label = QLabel("", self.update_banner)
+        self.update_banner_label.setObjectName("updateBannerLabel")
+        self.update_banner_label.setWordWrap(True)
+        bl.addWidget(self.update_banner_label, 1)
+        self.update_banner_button = QPushButton("Update", self.update_banner)
+        self.update_banner_button.setObjectName("updateBannerButton")
+        self.update_banner_button.clicked.connect(self._on_update_banner_clicked)
+        bl.addWidget(self.update_banner_button, 0)
+        self.update_banner_dismiss = QToolButton(self.update_banner)
+        self.update_banner_dismiss.setText("×")
+        self.update_banner_dismiss.setObjectName("updateBannerDismiss")
+        self.update_banner_dismiss.setToolTip("Dismiss until next launch")
+        self.update_banner_dismiss.clicked.connect(self._on_update_banner_dismissed)
+        bl.addWidget(self.update_banner_dismiss, 0)
+        parent_layout.addWidget(self.update_banner)
+        self._pending_update = None
+        self._update_banner_dismissed_this_session = False
+
+    def _show_update_banner(self, version, url, body, asset_info):
+        """Populate and reveal the in-window update banner."""
+        self._pending_update = (version, url, body, asset_info)
+        if getattr(self, "_update_banner_dismissed_this_session", False):
+            # User clicked the × in this session; respect that until next
+            # launch (where __init__ rebuilds the banner state).
+            return
+        if not hasattr(self, "update_banner"):
+            return
+        size_text = ""
+        if asset_info:
+            size_mb = (asset_info.get("size") or 0) / (1024 * 1024)
+            if size_mb >= 1:
+                size_text = f" ({size_mb:.0f} MB)"
+        self.update_banner_label.setText(
+            f"<b>{APP_NAME} {version}</b> is available — you're on "
+            f"{APP_VERSION}.{size_text}"
+        )
+        # If we have a downloadable asset for this platform, the button
+        # downloads + opens it. If not, it just opens the release page.
+        if asset_info:
+            self.update_banner_button.setText("Update")
+        else:
+            self.update_banner_button.setText("Open release page")
+        self.update_banner.setVisible(True)
+
+    def _on_update_banner_clicked(self):
+        pending = getattr(self, "_pending_update", None)
+        if not pending:
+            return
+        version, url, _body, asset_info = pending
+        if asset_info:
+            self._start_installer_download(asset_info["url"], asset_info["name"])
+        else:
+            try:
+                QDesktopServices.openUrl(QUrl(url or UPDATE_DOWNLOAD_PAGE))
+            except Exception:
+                _log_caught("_on_update_banner_clicked: openUrl")
+
+    def _on_update_banner_dismissed(self):
+        self._update_banner_dismissed_this_session = True
+        try:
+            self.update_banner.setVisible(False)
+        except Exception:
+            _log_caught("_on_update_banner_dismissed")
 
     def _start_installer_download(self, url: str, filename: str):
         """Stream the installer to ~/Downloads with a progress dialog, then
