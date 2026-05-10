@@ -51,6 +51,14 @@ jobs:
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "VERSION_NUMERIC=$NUMERIC" >> "$GITHUB_ENV"
+          # Bake the tag version into the source so the bundle's
+          # CFBundleShortVersionString / About dialog / Diagnostics readout
+          # all match the GitHub release tag, even if a maintainer forgot
+          # to bump constants.py. The .bak suffix keeps sed portable
+          # across BSD (macOS) and GNU (Linux/Git-Bash on Windows).
+          sed -i.bak -E "s/^APP_VERSION[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]/APP_VERSION = \"$VERSION\"/" nexustyper/constants.py
+          rm -f nexustyper/constants.py.bak
+          grep '^APP_VERSION' nexustyper/constants.py
 
       - name: Install dependencies
         run: |
@@ -177,6 +185,14 @@ jobs:
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "VERSION_NUMERIC=$NUMERIC" >> "$GITHUB_ENV"
+          # Bake the tag version into the source so the bundle's
+          # CFBundleShortVersionString / About dialog / Diagnostics readout
+          # all match the GitHub release tag, even if a maintainer forgot
+          # to bump constants.py. The .bak suffix keeps sed portable
+          # across BSD (macOS) and GNU (Linux/Git-Bash on Windows).
+          sed -i.bak -E "s/^APP_VERSION[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]/APP_VERSION = \"$VERSION\"/" nexustyper/constants.py
+          rm -f nexustyper/constants.py.bak
+          grep '^APP_VERSION' nexustyper/constants.py
 
       - name: Install dependencies
         run: |
@@ -291,6 +307,10 @@ jobs:
             VERSION="0.0.0~dev.${GITHUB_RUN_NUMBER}"
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          # Bake the tag version into the source so the in-app About /
+          # Diagnostics readout matches the GitHub release tag.
+          sed -i -E "s/^APP_VERSION[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]/APP_VERSION = \"$VERSION\"/" nexustyper/constants.py
+          grep '^APP_VERSION' nexustyper/constants.py
 
       - name: Install dependencies
         run: |
