@@ -61,17 +61,47 @@ class InstallerDownloader(QObject):
     def run(self):
         tmp = self._dest + ".part"
         try:
+            import urllib.error
+            import urllib.request
+
             # Fast path #1: a previous run already finished this exact
-            # installer (filename includes the version, so a hit here means
-            # the bytes on disk are the right ones). Atomic os.replace
-            # guarantees we only ever write to `dest` from a completed
-            # `.part`, so a non-empty file is trustworthy.
+            # installer. With the version stripped from asset filenames,
+            # we can't trust "file exists" alone — the cached file might
+            # be the previous release. Send a HEAD and compare the
+            # server's Content-Length against the local file size. Skip
+            # only on an exact byte-count match (same version, same build).
             try:
                 if os.path.exists(self._dest) and os.path.getsize(self._dest) > 0:
-                    sz = os.path.getsize(self._dest)
-                    self.progress.emit(sz, sz)
-                    self.finished.emit(self._dest)
-                    return
+                    local_sz = os.path.getsize(self._dest)
+                    head_req = urllib.request.Request(
+                        self._url,
+                        method="HEAD",
+                        headers={
+                            "User-Agent": (
+                                f"{_APP_NAME}/{_APP_VERSION} (+update-download)"
+                            ),
+                        },
+                    )
+                    try:
+                        with urllib.request.urlopen(
+                            head_req, timeout=10,
+                            context=_build_https_context(),
+                        ) as head_resp:
+                            remote_sz = int(
+                                head_resp.headers.get("Content-Length") or 0
+                            )
+                        if remote_sz > 0 and remote_sz == local_sz:
+                            self.progress.emit(local_sz, local_sz)
+                            self.finished.emit(self._dest)
+                            return
+                    except (urllib.error.URLError, urllib.error.HTTPError,
+                            TimeoutError, OSError):
+                        # HEAD failed (offline, server hiccup) — don't
+                        # block the user with a stale cached file we
+                        # can't verify, just fall through to a normal
+                        # download which will hit its own error path if
+                        # the network is truly out.
+                        _log_caught("run: HEAD probe")
             except OSError:
                 _log_caught("run: dest stat")
 
@@ -80,16 +110,39 @@ class InstallerDownloader(QObject):
             # where we left off so we don't redownload bytes we already
             # have. Server may ignore Range (returns 200) — in that case
             # we start fresh transparently.
+            #
+            # The sidecar .meta file records which URL the .part bytes
+            # came from. Without it, a stale .part from an earlier
+            # release could resume into a newer-release download and
+            # produce a corrupted Frankenfile, because GitHub asset
+            # filenames are reused across versions now (v3.7.4 and
+            # v3.7.5 both ship a "NexusTyper-Pro-macOS.pkg").
+            meta = tmp + ".meta"
             existing = 0
             try:
                 if os.path.exists(tmp):
-                    existing = os.path.getsize(tmp)
+                    stored_url = ""
+                    try:
+                        with open(meta, "r", encoding="utf-8") as mf:
+                            stored_url = mf.read().strip()
+                    except OSError:
+                        _log_caught("run: meta read")
+                    if stored_url != self._url:
+                        # Different URL → bytes belong to a different
+                        # build. Wipe and start fresh.
+                        try:
+                            os.remove(tmp)
+                        except OSError:
+                            _log_caught("run: prune mismatched .part")
+                        try:
+                            os.remove(meta)
+                        except OSError:
+                            pass
+                    else:
+                        existing = os.path.getsize(tmp)
             except OSError:
                 _log_caught("run: tmp stat")
                 existing = 0
-
-            import urllib.error
-            import urllib.request
 
             headers = {
                 "User-Agent": f"{_APP_NAME}/{_APP_VERSION} (+update-download)",
@@ -144,6 +197,15 @@ class InstallerDownloader(QObject):
                     mode = "wb"
                     done = 0
 
+                # Write the sidecar BEFORE we start writing bytes. If we
+                # crash mid-download, the meta is already there to mark
+                # which URL the partial belongs to.
+                try:
+                    with open(meta, "w", encoding="utf-8") as mf:
+                        mf.write(self._url)
+                except OSError:
+                    _log_caught("run: meta write")
+
                 with open(tmp, mode) as f:
                     while True:
                         if self._cancel:
@@ -159,6 +221,10 @@ class InstallerDownloader(QObject):
                         self.progress.emit(done, total)
 
             os.replace(tmp, self._dest)
+            try:
+                os.remove(meta)
+            except OSError:
+                pass
         except Exception as e:
             _log_caught("run")
             # Intentionally do NOT remove the .part file. A network blip
