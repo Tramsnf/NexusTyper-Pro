@@ -28,6 +28,7 @@ from nexustyper.typing.browser import (
     auto_optimize_for_window as _auto_optimize_for_window_helper,
     is_browser_title as _is_browser_title_helper,
     looks_like_code_quick as _looks_like_code_quick_helper,
+    normalize_browser_tab_prefix as _normalize_browser_tab_prefix_helper,
 )
 from nexustyper.typing.macros import (
     MACRO_FULLMATCH_RE,
@@ -111,6 +112,11 @@ class TypingWorker(QObject):
         self._resume_settle_until = 0.0
         self._esc_on_next_ready = False
         self._target_is_browser = False
+        self._initial_tab_prefix = ""
+        # Tracks the last live-lock state we emitted to the status bar so we
+        # only emit on transitions (locked <-> lost-focus) instead of every
+        # cycle.
+        self._lock_state_emitted = None  # type: ignore[assignment]
 
     def _is_browser_title(self, title: str) -> bool:
         return _is_browser_title_helper(title)
@@ -215,12 +221,18 @@ class TypingWorker(QObject):
             return
         while self._paused and self._running:
             try:
-                if self.get_active_window_identity() == self.initial_window_identity:
+                if self._lock_matches(
+                    self.get_active_window_identity(),
+                    self.get_active_window_title(),
+                ):
                     # Grace period to avoid missing text when focus returns.
                     for i in range(4, 0, -1):
                         if not (self._paused and self._running):
                             return
-                        if self.get_active_window_identity() != self.initial_window_identity:
+                        if not self._lock_matches(
+                            self.get_active_window_identity(),
+                            self.get_active_window_title(),
+                        ):
                             break
                         try:
                             self.update_status.emit(f"Resuming in {i}…")
@@ -229,7 +241,10 @@ class TypingWorker(QObject):
                         if not _short_sleep(1.0):
                             return
                     else:
-                        if self.get_active_window_identity() == self.initial_window_identity:
+                        if self._lock_matches(
+                            self.get_active_window_identity(),
+                            self.get_active_window_title(),
+                        ):
                             self.resume()
                             break
             except Exception:
@@ -252,6 +267,46 @@ class TypingWorker(QObject):
             return self._platform.active_app_identity() or self.get_active_window_title()
         except Exception:
             return self.get_active_window_title()
+
+    def _lock_matches(self, identity, title) -> bool:
+        """True when the current foreground matches the locked target.
+
+        Combines the HWND/app identity (resilient to title mutations) with a
+        browser-tab title prefix check so that switching Chrome tabs (which
+        keeps the same HWND on Windows) still trips the lock.
+        """
+        if not self.initial_window_identity:
+            return True
+        if (identity or "") != self.initial_window_identity:
+            return False
+        if self._target_is_browser and self._initial_tab_prefix:
+            cur_prefix = _normalize_browser_tab_prefix_helper(title or "")
+            if cur_prefix and cur_prefix != self._initial_tab_prefix:
+                return False
+        return True
+
+    def _emit_lock_state(self, locked: bool, current_title: str = "") -> None:
+        """Push a live status update when the lock state changes.
+
+        The original ``Typing locked on: ...`` message is emitted once at
+        start and never refreshed, which made it impossible to tell from the
+        status bar whether keys were actually reaching the target. We emit
+        on transitions: a green "Typing into" message when focus is held and
+        a "Lost focus" warning when it isn't.
+        """
+        try:
+            if self._lock_state_emitted == locked:
+                return
+            self._lock_state_emitted = locked
+            if locked:
+                self.update_status.emit(f"Typing into: {self.initial_window}")
+            else:
+                cur = (current_title or "").strip() or "another window"
+                self.update_status.emit(
+                    f"Lost focus on '{self.initial_window}' (now: {cur}) — paused"
+                )
+        except Exception:
+            pass
 
     def update_speed_range(self, min_wpm, max_wpm):
         self.min_wpm = min_wpm
@@ -357,11 +412,14 @@ class TypingWorker(QObject):
                         self.pause(auto_resume_check=True)
                     continue
 
-            # Focus lock guardrail
-            if self.initial_window_identity and identity != self.initial_window_identity:
+            # Focus lock guardrail (HWND identity + browser tab-prefix).
+            if self.initial_window_identity and not self._lock_matches(identity, title):
+                self._emit_lock_state(False, title)
                 if not self._paused:
                     self.pause(auto_resume_check=True)
                 continue
+            # Focus is held — refresh the live status if it just returned.
+            self._emit_lock_state(True, title)
 
             # Post-resume settle delay (prevents dropped keystrokes in some apps).
             try:
@@ -730,6 +788,11 @@ class TypingWorker(QObject):
             self.initial_window = target
             self.initial_window_identity = target_identity
             self._target_is_browser = self._is_browser_title(self.initial_window)
+            self._initial_tab_prefix = (
+                _normalize_browser_tab_prefix_helper(self.initial_window)
+                if self._target_is_browser else ""
+            )
+            self._lock_state_emitted = True  # Already on-target; suppress duplicate emit.
             self._release_modifiers_best_effort()
             self.update_status.emit(f"Typing locked on: {self.initial_window}")
             if self.auto_detect:

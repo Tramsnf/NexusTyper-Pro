@@ -9,6 +9,7 @@ This module is Qt-free; it just classifies titles and returns data.
 
 from __future__ import annotations
 
+import re
 from typing import Dict
 
 
@@ -28,6 +29,36 @@ def is_browser_title(title: str) -> bool:
     """Return True if ``title`` looks like a web browser."""
     t = (title or "").lower()
     return any(k in t for k in _BROWSER_KEYWORDS)
+
+
+_TITLE_NOTIFICATION_RE = re.compile(r'^\(\d+\)\s*')
+_TITLE_DIRTY_RE = re.compile(r'^[●•*]\s*')
+_TITLE_SEPARATORS = (' - ', ' — ', ' – ')
+
+
+def normalize_browser_tab_prefix(title: str) -> str:
+    """Extract a stable tab-identity prefix from a browser window title.
+
+    Browser titles look like ``"<page title> - <Browser Name>"``. To detect
+    tab switches (which keep the same HWND on Windows but change the title
+    completely), we strip the trailing browser suffix and a few common
+    live-mutating prefixes (notification counters like ``(3)``, dirty
+    markers like ``●``). The result is lowercased so case flicker doesn't
+    cause false mismatches. Returns ``""`` when the input doesn't look
+    browser-shaped — callers should treat empty as "skip the check".
+    """
+    s = (title or "").strip()
+    if not s:
+        return ""
+    s = _TITLE_NOTIFICATION_RE.sub('', s)
+    s = _TITLE_DIRTY_RE.sub('', s)
+    for sep in _TITLE_SEPARATORS:
+        idx = s.rfind(sep)
+        if idx > 0:
+            suffix = s[idx + len(sep):].lower()
+            if any(k in suffix for k in _BROWSER_KEYWORDS):
+                return s[:idx].strip().lower()
+    return ""
 
 
 def looks_like_code_quick(text: str) -> bool:
@@ -145,6 +176,7 @@ _is_browser_title = is_browser_title
 
 __all__ = [
     "is_browser_title",
+    "normalize_browser_tab_prefix",
     "looks_like_code_quick",
     "auto_optimize_for_window",
     "_is_browser_title",
