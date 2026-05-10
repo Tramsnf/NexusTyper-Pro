@@ -6,6 +6,7 @@ The pyqtSignal declarations and constructor signature stay byte-identical so
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 import random
 import re
@@ -99,6 +100,7 @@ class DryRunWorker(QObject):
                             prev = ch
             self.finished.emit()
         except Exception:
+            _log_caught('run@L101')
             self.finished.emit()
 
 

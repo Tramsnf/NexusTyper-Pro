@@ -7,6 +7,7 @@ constructor arguments so this module has no hidden coupling to the script.
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 import platform
 from typing import Callable, Optional
@@ -77,6 +78,7 @@ class DiagnosticsDialog(QDialog):
             from PyQt5.QtCore import PYQT_VERSION_STR, QT_VERSION_STR
             import pynput
             import pyautogui as pag
+            from nexustyper.typing.keyboard import kbd
 
             lines = [
                 f"App: {self._app_name} v{self._app_version}",
@@ -86,6 +88,11 @@ class DiagnosticsDialog(QDialog):
                 f"PyQt: {PYQT_VERSION_STR}",
                 f"pynput: {getattr(pynput, '__version__', 'unknown')}",
                 f"pyautogui: {getattr(pag, '__version__', 'unknown')}",
+                (
+                    f"Scancode keyboard backend: "
+                    f"{'available' if kbd.scancode_available() else 'unavailable'} "
+                    f"(mode={kbd.mode}, active={kbd.active_backend_name()})"
+                ),
                 f"Log file: {self._log_file}",
                 f"Log dir: {self._log_dir}",
             ]
@@ -96,10 +103,12 @@ class DiagnosticsDialog(QDialog):
                 try:
                     trusted = bool(self._accessibility_trusted_fn())
                 except Exception:
+                    _log_caught('populate@L104')
                     trusted = False
                 lines.append(f"macOS Accessibility trusted: {trusted}")
             self.info.setPlainText("\n".join(lines))
         except Exception as e:
+            _log_caught('populate@L108')
             self.info.setPlainText(f"Failed to gather diagnostics: {e}")
 
     def copy_info(self) -> None:
@@ -130,3 +139,5 @@ class DiagnosticsDialog(QDialog):
 
 
 __all__ = ["DiagnosticsDialog"]
+
+

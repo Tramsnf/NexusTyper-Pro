@@ -21,6 +21,7 @@ The class is deliberately Qt-free so it can be exercised in headless tests.
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 import logging
 import threading
@@ -83,6 +84,7 @@ class HotkeyListener:
             try:
                 listener.stop()
             except Exception:
+                _log_caught('stop@L85')
                 pass
         self._listener = None
 
@@ -91,6 +93,7 @@ class HotkeyListener:
             try:
                 thread.join(timeout=join_timeout)
             except Exception:
+                _log_caught('stop@L93')
                 pass
         if thread is not None and not thread.is_alive():
             self._thread = None
@@ -126,6 +129,7 @@ class HotkeyListener:
                         "Global hotkeys not started: no valid hotkey bindings"
                     )
                 except Exception:
+                    _log_caught('_run@L128')
                     pass
                 return
 
@@ -135,7 +139,10 @@ class HotkeyListener:
             try:
                 logger.exception("Hotkey listener error")
             except Exception:
+                _log_caught('_run@L137')
                 pass
             # Match the original print so terminal users still see the failure
             # even if logging is misconfigured.
             print(f"Hotkey listener error: {exc}")
+
+

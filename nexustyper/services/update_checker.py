@@ -6,6 +6,7 @@ tag is a SemVer greater than the current version. Emits ``checkFailed(reason)``
 on transport/parse errors so the UI can stay quiet rather than nagging the user.
 Never raises into Qt.
 """
+from nexustyper.services.logging_setup import _log_caught
 
 import os
 import platform
@@ -30,9 +31,11 @@ def _build_https_context():
             if cafile and os.path.exists(cafile):
                 return ssl.create_default_context(cafile=cafile)
         except Exception:
+            _log_caught('_build_https_context@L32')
             pass
         return ssl.create_default_context()
     except Exception:
+        _log_caught('_build_https_context@L35')
         return None
 
 
@@ -124,6 +127,7 @@ class UpdateChecker(QObject):
             with urllib.request.urlopen(req, timeout=8, context=_build_https_context()) as resp:
                 payload = _json.loads(resp.read().decode("utf-8", errors="replace"))
         except Exception as e:
+            _log_caught('run@L126')
             self.checkFailed.emit(f"Update check failed: {e}")
             return
 
@@ -140,3 +144,5 @@ class UpdateChecker(QObject):
             self.updateAvailable.emit(latest_tag.lstrip("v"), download_url, body, asset_info)
         else:
             self.upToDate.emit(latest_tag.lstrip("v"))
+
+

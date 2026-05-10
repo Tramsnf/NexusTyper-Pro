@@ -7,6 +7,7 @@ Content-Length), ``finished(local_path)`` on a clean save, or
 and atomically renames on success so a half-downloaded file is never mistaken
 for the real installer.
 """
+from nexustyper.services.logging_setup import _log_caught
 
 import os
 
@@ -25,9 +26,11 @@ def _build_https_context():
             if cafile and os.path.exists(cafile):
                 return ssl.create_default_context(cafile=cafile)
         except Exception:
+            _log_caught('_build_https_context@L27')
             pass
         return ssl.create_default_context()
     except Exception:
+        _log_caught('_build_https_context@L30')
         return None
 
 
@@ -75,6 +78,7 @@ class InstallerDownloader(QObject):
                                 f.close()
                                 os.remove(tmp)
                             except OSError:
+                                _log_caught('run@L77')
                                 pass
                             self.failed.emit("Download canceled")
                             return
@@ -86,10 +90,14 @@ class InstallerDownloader(QObject):
                         self.progress.emit(done, total)
             os.replace(tmp, self._dest)
         except Exception as e:
+            _log_caught('run@L88')
             try:
                 os.remove(tmp)
             except OSError:
+                _log_caught('run@L91')
                 pass
             self.failed.emit(f"Download failed: {e}")
             return
         self.finished.emit(self._dest)
+
+

@@ -1,4 +1,5 @@
 """Custom QTextEdit / QPlainTextEdit widgets for NexusTyper Pro."""
+from nexustyper.services.logging_setup import _log_caught
 
 import re
 
@@ -39,6 +40,7 @@ class PasteCleaningTextEdit(QTextEdit):
             self.insertPlainText(text)
         except Exception:
             # Fallback to default behavior on unexpected formats
+            _log_caught('insertFromMimeData@L40')
             super().insertFromMimeData(source)
 
     def dragEnterEvent(self, event):
@@ -75,11 +77,13 @@ class CodeEditor(QPlainTextEdit):
             if fixed:
                 self.setFont(fixed)
         except Exception:
+            _log_caught('__init__@L77')
             pass
         try:
             metrics = QFontMetrics(self.font())
             self.setTabStopDistance(4 * metrics.horizontalAdvance(' '))
         except Exception:
+            _log_caught('__init__@L82')
             pass
 
         # Basic word list for autocomplete (Python-ish + common terms)
@@ -111,6 +115,7 @@ class CodeEditor(QPlainTextEdit):
             text = text.replace('\u00A0', ' ').replace('\u202F', ' ')
             self.insertPlainText(text)
         except Exception:
+            _log_caught('insertFromMimeData@L113')
             super().insertFromMimeData(source)
 
     def dragEnterEvent(self, event):
@@ -148,6 +153,7 @@ class CodeEditor(QPlainTextEdit):
         try:
             self._completer.popup().hide()
         except Exception:
+            _log_caught('hide_completer@L150')
             pass
 
     def maybe_show_completions(self):
@@ -159,3 +165,5 @@ class CodeEditor(QPlainTextEdit):
         cr = self.cursorRect()
         cr.setWidth(self._completer.popup().sizeHintForColumn(0) + self._completer.popup().verticalScrollBar().sizeHint().width())
         self._completer.complete(cr)
+
+

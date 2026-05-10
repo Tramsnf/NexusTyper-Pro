@@ -13,7 +13,7 @@ branches scattered through the worker.
 
 from __future__ import annotations
 
-import logging
+import platform as _stdlib_platform
 import random
 import re
 import threading
@@ -24,12 +24,14 @@ import pyperclip
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from nexustyper.platform import current as _current_platform
+from nexustyper.services.logging_setup import _log_caught, logger
 from nexustyper.typing.browser import (
     auto_optimize_for_window as _auto_optimize_for_window_helper,
     is_browser_title as _is_browser_title_helper,
     looks_like_code_quick as _looks_like_code_quick_helper,
     normalize_browser_tab_prefix as _normalize_browser_tab_prefix_helper,
 )
+from nexustyper.typing.keyboard import kbd
 from nexustyper.typing.macros import (
     MACRO_FULLMATCH_RE,
     MACRO_SPLIT_RE,
@@ -39,9 +41,6 @@ from nexustyper.typing.macros import (
 )
 from nexustyper.typing.mistakes import KEY_ADJACENCY
 from nexustyper.typing.sanitize import apply_smart_newlines, sanitize_ai_text
-
-
-logger = logging.getLogger("nexustyper")
 
 
 # Mirrors the constant in NexusTyper Pro.py — the worker reads it as a class
@@ -100,6 +99,7 @@ class TypingWorker(QObject):
         try:
             self._allowed_keys = set(getattr(pyautogui, "KEYBOARD_KEYS", []))
         except Exception:
+            _log_caught('__init__@L101')
             self._allowed_keys = set()
         # New modes
         self.ime_friendly = kwargs.get('ime_friendly', False)
@@ -109,6 +109,14 @@ class TypingWorker(QObject):
         self.blocked_apps = [b.strip().lower() for b in blocked.split(',') if b.strip()]
         self.auto_detect = kwargs.get('auto_detect', False)
         self.enable_macros = kwargs.get('enable_macros', True)
+        # Remote Desktop / virtual desktop keyboard compatibility mode:
+        # 'off', 'auto', or 'on'. Auto is the safe default on Windows; other
+        # OSes ignore this and always use pyautogui (their backends already
+        # propagate through CRD/RDP).
+        self.kbd_rdp_mode = kwargs.get(
+            'kbd_rdp_mode',
+            'auto' if _stdlib_platform.system() == 'Windows' else 'off',
+        )
         self._resume_settle_until = 0.0
         self._esc_on_next_ready = False
         self._target_is_browser = False
@@ -178,12 +186,14 @@ class TypingWorker(QObject):
                 try:
                     self._pause_total += max(0.0, time.time() - self._pause_started_at)
                 except Exception:
+                    _log_caught('resume@L187')
                     pass
                 self._pause_started_at = None
             # Give the OS/app a short moment to settle focus after resume.
             try:
                 self._resume_settle_until = time.time() + 0.25
             except Exception:
+                _log_caught('resume@L193')
                 self._resume_settle_until = 0.0
             # Dismiss autocomplete popups on resume (for IDEs) when enabled.
             if self.press_esc and not self._target_is_browser:
@@ -196,6 +206,7 @@ class TypingWorker(QObject):
             if self._pause_started_at is not None:
                 return self._pause_total + max(0.0, time.time() - self._pause_started_at)
         except Exception:
+            _log_caught('_current_pause_total@L205')
             pass
         return self._pause_total
 
@@ -237,6 +248,7 @@ class TypingWorker(QObject):
                         try:
                             self.update_status.emit(f"Resuming in {i}…")
                         except Exception:
+                            _log_caught('_auto_resume_checker@L246')
                             pass
                         if not _short_sleep(1.0):
                             return
@@ -248,6 +260,7 @@ class TypingWorker(QObject):
                             self.resume()
                             break
             except Exception:
+                _log_caught('_auto_resume_checker@L257')
                 pass  # Ignore errors (e.g., window closed)
             if not _short_sleep(0.2):
                 return
@@ -258,6 +271,7 @@ class TypingWorker(QObject):
                 return self._platform.active_app_identity()
             return pyautogui.getActiveWindowTitle() or "Unknown"
         except Exception:
+            _log_caught('get_active_window_title@L267')
             return "Unknown"
 
     def get_active_window_identity(self):
@@ -266,6 +280,7 @@ class TypingWorker(QObject):
         try:
             return self._platform.active_app_identity() or self.get_active_window_title()
         except Exception:
+            _log_caught('get_active_window_identity@L275')
             return self.get_active_window_title()
 
     def _lock_matches(self, identity, title) -> bool:
@@ -306,6 +321,7 @@ class TypingWorker(QObject):
                     f"Lost focus on '{self.initial_window}' (now: {cur}) — paused"
                 )
         except Exception:
+            _log_caught('_emit_lock_state@L315')
             pass
 
     def update_speed_range(self, min_wpm, max_wpm):
@@ -331,6 +347,7 @@ class TypingWorker(QObject):
         try:
             screen_size = pyautogui.size()
         except Exception:
+            _log_caught('validate_macro@L340')
             screen_size = None
         return _validate_macro_helper(
             command,
@@ -375,6 +392,7 @@ class TypingWorker(QObject):
         try:
             return max(0.0, (time.time() - overall_start_time) - self._current_pause_total())
         except Exception:
+            _log_caught('_elapsed_active@L384')
             return max(0.0, time.time() - overall_start_time)
 
     def _maybe_emit_progress(self, overall_start_time: float, chars_completed: int, total_chars_overall: int):
@@ -427,15 +445,17 @@ class TypingWorker(QObject):
                     self._sleep_interruptible(max(0.0, self._resume_settle_until - time.time()))
                 self._resume_settle_until = 0.0
             except Exception:
+                _log_caught('_wait_until_ready@L436')
                 self._resume_settle_until = 0.0
 
             # Optional: close autocomplete popups once after resuming.
             if getattr(self, "_esc_on_next_ready", False):
                 if not self._target_is_browser:
                     try:
-                        pyautogui.press('esc')
+                        kbd.press('esc')
                         self._sleep_interruptible(0.05)
                     except Exception:
+                        _log_caught('_wait_until_ready@L445')
                         pass
                 self._esc_on_next_ready = False
 
@@ -469,6 +489,7 @@ class TypingWorker(QObject):
         try:
             screen_w, screen_h = pyautogui.size()
         except Exception:
+            _log_caught('_mouse_jitter_thread@L478')
             screen_w, screen_h = None, None
         corner_guard = 2  # pixels from the edges considered fail-safe zone
 
@@ -477,6 +498,7 @@ class TypingWorker(QObject):
                 try:
                     x, y = pyautogui.position()
                 except Exception:
+                    _log_caught('_mouse_jitter_thread@L486')
                     x = y = None
                 # If cursor is in a fail-safe corner/edge, stop jitter immediately
                 if screen_w and screen_h and x is not None and y is not None:
@@ -485,6 +507,7 @@ class TypingWorker(QObject):
                         try:
                             self.update_status.emit("Mouse jitter stopped: cursor at screen edge (fail-safe zone).")
                         except Exception:
+                            _log_caught('_mouse_jitter_thread@L494')
                             pass
                         break
 
@@ -496,6 +519,7 @@ class TypingWorker(QObject):
                     try:
                         self.update_status.emit("Mouse jitter stopped due to PyAutoGUI fail-safe.")
                     except Exception:
+                        _log_caught('_mouse_jitter_thread@L505')
                         pass
                     break
                 # For any other transient error, back off briefly and continue
@@ -507,24 +531,31 @@ class TypingWorker(QObject):
         try:
             original_clip = pyperclip.paste()
         except Exception:
+            _log_caught('_paste_text@L516')
             original_clip = None
         try:
             pyperclip.copy(text)
-            self._platform.paste_via_keyboard_shortcut()
+            # Route the paste shortcut through the keyboard shim so it
+            # propagates through Chrome Remote Desktop / RDP / AnyDesk in
+            # RDP-compat mode. macOS uses Cmd+V, everything else Ctrl+V.
+            modifier = 'command' if self._platform.name == 'macos' else 'ctrl'
+            kbd.hotkey(modifier, 'v')
             return True
         except Exception as e:
             # Fallback: type the text if paste/hotkey fails.
             try:
-                pyautogui.typewrite(text, interval=0.002)
+                kbd.typewrite(text, interval=0.002)
                 try:
                     self.update_status.emit("Paste failed; fell back to typing.")
                 except Exception:
+                    _log_caught('_paste_text@L532')
                     pass
                 return True
             except Exception:
                 try:
                     self.update_status.emit(f"Paste/Type failed: {e}")
                 except Exception:
+                    _log_caught('_paste_text@L538')
                     pass
                 return False
         finally:
@@ -532,6 +563,7 @@ class TypingWorker(QObject):
                 try:
                     pyperclip.copy(original_clip)
                 except Exception:
+                    _log_caught('_paste_text@L545')
                     pass
 
     def _type_unicode_char_macos(self, ch: str):
@@ -553,7 +585,7 @@ class TypingWorker(QObject):
             'π': 'pi', 'σ': 'sigma', 'ω': 'omega', 'ℝ': 'R', '′': "'", '″': '"'
         }
         out = mapping.get(ch, '?')
-        pyautogui.typewrite(out, interval=0.002)
+        kbd.typewrite(out, interval=0.002)
 
     _SHIFTED_US_SYMBOLS = {
         '!': '1',
@@ -592,8 +624,9 @@ class TypingWorker(QObject):
         # Many editors need a tiny delay after Esc so the next key doesn't accept a suggestion.
         for _ in range(presses):
             try:
-                pyautogui.press('esc')
+                kbd.press('esc')
             except Exception:
+                _log_caught('_dismiss_autocomplete_popup@L607')
                 break
             self._sleep_interruptible(delay)
 
@@ -612,15 +645,24 @@ class TypingWorker(QObject):
                 break
             return max(0, (tab_count * 4 + space_count) // 4)
         except Exception:
+            _log_caught('_indent_level_for_list_mode@L625')
             return 0
 
     def _release_modifiers_best_effort(self):
         # Clear any "stuck" modifiers which can cause shifted symbols to mis-type.
-        self._platform.release_modifiers_best_effort()
+        # Routed through the keyboard shim so it works in RDP-compat mode too;
+        # the platform layer's release path uses pyautogui directly and would
+        # not propagate through Chrome Remote Desktop / RDP.
+        for key in ("shift", "ctrl", "alt", "command", "cmd", "option"):
+            try:
+                kbd.keyUp(key)
+            except Exception:
+                _log_caught('_release_modifiers_best_effort@L636')
+                pass
 
     def _type_shifted_symbol_us(self, ch: str) -> bool:
         """Type a shifted symbol via explicit public keyDown/keyUp calls so
-        pyautogui.PAUSE fires between each event. pyautogui.hotkey() skips
+        pyautogui.PAUSE fires between each event. kbd.hotkey() skips
         PAUSE between its inner keyDowns, which races shift and produces
         ")"->"0", "@"->"2", etc. at high speed."""
         base = self._SHIFTED_US_SYMBOLS.get(ch)
@@ -629,7 +671,7 @@ class TypingWorker(QObject):
         return self._press_with_shift(base)
 
     def _type_shifted_letter(self, ch: str) -> bool:
-        """Uppercase A-Z via explicit keyDown/keyUp. pyautogui.typewrite()
+        """Uppercase A-Z via explicit keyDown/keyUp. kbd.typewrite()
         internally fires shift-down/key-down/key-up/shift-up with no PAUSE
         between events, which races at high speed and produces "MAGI"->"mAGI"
         or shift-stuck corruption like "Google"->"GOOGLE"."""
@@ -640,15 +682,17 @@ class TypingWorker(QObject):
         No manual sleeps, no _release_modifiers_best_effort — those caused
         state desync with macOS Quartz flag tracking."""
         try:
-            pyautogui.keyDown("shift")
-            pyautogui.keyDown(base)
-            pyautogui.keyUp(base)
-            pyautogui.keyUp("shift")
+            kbd.keyDown("shift")
+            kbd.keyDown(base)
+            kbd.keyUp(base)
+            kbd.keyUp("shift")
             return True
         except Exception:
+            _log_caught('_press_with_shift@L666')
             try:
-                pyautogui.keyUp("shift")
+                kbd.keyUp("shift")
             except Exception:
+                _log_caught('_press_with_shift@L669')
                 pass
             return False
 
@@ -669,13 +713,15 @@ class TypingWorker(QObject):
         """Type a single character with extra guardrails for code editors."""
         if ch == '\t':
             try:
-                pyautogui.press("tab")
+                kbd.press("tab")
                 return True
             except Exception:
+                _log_caught('_type_character@L692')
                 try:
-                    pyautogui.typewrite('\t', interval=0.0)
+                    kbd.typewrite('\t', interval=0.0)
                     return True
                 except Exception:
+                    _log_caught('_type_character@L696')
                     return False
         if ch in self._SHIFTED_US_SYMBOLS:
             return self._type_shifted_symbol_us(ch)
@@ -684,9 +730,10 @@ class TypingWorker(QObject):
         if len(ch) == 1 and ch.isascii() and ch.isalpha() and ch.isupper():
             return self._type_shifted_letter(ch)
         try:
-            pyautogui.typewrite(ch, interval=0.0)
+            kbd.typewrite(ch, interval=0.0)
             return True
         except Exception:
+            _log_caught('_type_character@L707')
             return False
 
     def _type_segment(self, segment, overall_start_time, chars_completed, total_chars_overall):
@@ -707,17 +754,17 @@ class TypingWorker(QObject):
                     and self.max_wpm < 220
                     and random.random() < self.mistake_chance):
                 if char.lower() in KEY_ADJACENCY:
-                    pyautogui.typewrite(random.choice(KEY_ADJACENCY[char.lower()]))
+                    kbd.typewrite(random.choice(KEY_ADJACENCY[char.lower()]))
                     self._sleep_interruptible(random.uniform(0.1, 0.25))
-                    pyautogui.press('backspace')
+                    kbd.press('backspace')
                     self._sleep_interruptible(random.uniform(0.05, 0.15))
 
             if char == '\n':
                 self._dismiss_autocomplete_popup()
                 if self.use_shift_enter:
-                    pyautogui.hotkey('shift', 'enter')
+                    kbd.hotkey('shift', 'enter')
                 else:
-                    pyautogui.press('enter')
+                    kbd.press('enter')
             else:
                 # Type non-ASCII via macOS Unicode Hex Input if enabled
                 if self.unicode_hex_typing and ord(char) > 0x7F:
@@ -728,7 +775,7 @@ class TypingWorker(QObject):
                 else:
                     self._maybe_dismiss_autocomplete_before_char(char, prev_char)
                     if not self._type_character(char):
-                        pyautogui.typewrite(char, interval=0.01)
+                        kbd.typewrite(char, interval=0.01)
 
             chars_completed += 1
             self._maybe_emit_progress(overall_start_time, chars_completed, total_chars_overall)
@@ -759,6 +806,8 @@ class TypingWorker(QObject):
             # ("Google"->"GOOGLE", ")"->"0"). 5ms is invisible to humans but
             # gives Quartz time to process modifier transitions in order.
             pyautogui.PAUSE = 0.005
+            # Tell the keyboard shim which backend to use for this run.
+            kbd.set_mode(self.kbd_rdp_mode)
             if self.enable_mouse_jitter:
                 threading.Thread(target=self._mouse_jitter_thread, daemon=True).start()
 
@@ -804,10 +853,12 @@ class TypingWorker(QObject):
             try:
                 self.set_progress_max.emit(total_chars_overall)
             except Exception:
+                _log_caught('run@L826')
                 pass
             try:
                 self.update_progress.emit(0)
             except Exception:
+                _log_caught('run@L830')
                 pass
 
             macro_split_re = MACRO_SPLIT_RE.pattern
@@ -873,7 +924,7 @@ class TypingWorker(QObject):
                                 if not self._wait_until_ready():
                                     break
                                 try:
-                                    pyautogui.hotkey('shift', 'tab')
+                                    kbd.hotkey('shift', 'tab')
                                 except Exception:
                                     # Fallback: explicit down/up so a hotkey
                                     # incompatibility doesn't kill the dedent.
@@ -881,13 +932,15 @@ class TypingWorker(QObject):
                                     # even if press('tab') raises mid-flight,
                                     # which otherwise leaves shift latched and
                                     # corrupts every subsequent keystroke.
+                                    _log_caught('run@L897')
                                     try:
-                                        pyautogui.keyDown('shift')
+                                        kbd.keyDown('shift')
                                         try:
-                                            pyautogui.press('tab')
+                                            kbd.press('tab')
                                         finally:
-                                            pyautogui.keyUp('shift')
+                                            kbd.keyUp('shift')
                                     except Exception:
+                                        _log_caught('run@L910')
                                         break
                                 self._sleep_interruptible(0.03)
                             virtual_level = desired_level
@@ -920,6 +973,7 @@ class TypingWorker(QObject):
                                 try:
                                     should_paste = any(ord(ch) > 0x7F for ch in segment)
                                 except Exception:
+                                    _log_caught('run@L942')
                                     should_paste = False
 
                             if should_paste:
@@ -941,9 +995,9 @@ class TypingWorker(QObject):
                             break
                         self._dismiss_autocomplete_popup()
                         if self.use_shift_enter:
-                            pyautogui.hotkey('shift', 'enter')
+                            kbd.hotkey('shift', 'enter')
                         else:
-                            pyautogui.press('enter')
+                            kbd.press('enter')
                         chars_completed += 1
                         self._maybe_emit_progress(overall_start_time, chars_completed, total_chars_overall)
                         self._sleep_interruptible(0.1)
@@ -952,6 +1006,7 @@ class TypingWorker(QObject):
                         try:
                             s = (stripped or "").rstrip()
                         except Exception:
+                            _log_caught('run@L974')
                             s = ""
                         if s.endswith(':') or s.endswith('{'):
                             virtual_level = desired_level + 1
@@ -1003,6 +1058,7 @@ class TypingWorker(QObject):
                 try:
                     self.update_progress.emit(total_chars_overall)
                 except Exception:
+                    _log_caught('run@L1025')
                     pass
                 self.update_status.emit("Typing completed successfully!")
             else:
@@ -1019,6 +1075,7 @@ class TypingWorker(QObject):
             try:
                 logger.exception("Typing worker crashed")
             except Exception:
+                _log_caught('run@L1041')
                 pass
         finally:
             self.finished.emit()
@@ -1050,7 +1107,9 @@ class TypingWorker(QObject):
                 f"Auto-optimized for {chosen}: mode={self.newline_mode}"
             )
         except Exception:
+            _log_caught('_auto_optimize_for_window@L1072')
             pass
 
 
 __all__ = ["TypingWorker", "MISTAKE_CHANCE"]
+

@@ -12,6 +12,7 @@ looks_like_math       Return True if text resembles mathematical notation.
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 
 def categorize_title(title: str) -> str:
@@ -50,6 +51,7 @@ def detect_content_kind(text: str) -> str:
         if looks_like_math(t):
             return 'math'
     except Exception:
+        _log_caught('detect_content_kind@L52')
         pass
     return 'prose'
 
@@ -59,6 +61,7 @@ def contains_non_ascii(text: str) -> bool:
     try:
         return any(ord(ch) > 0x7F for ch in text)
     except Exception:
+        _log_caught('contains_non_ascii@L61')
         return False
 
 
@@ -130,3 +133,5 @@ def looks_like_math(text: str) -> bool:
     if short_eq_lines >= 2:
         return True
     return False
+
+

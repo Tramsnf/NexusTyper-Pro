@@ -14,6 +14,7 @@ rather than an ImportError at module load time.
 """
 
 from __future__ import annotations
+from nexustyper.services.logging_setup import _log_caught
 
 import os
 import platform
@@ -115,6 +116,7 @@ def _read_html(path: str) -> str:
             tag.decompose()
         return soup.get_text(separator="\n")
     except ImportError:
+        _log_caught('_read_html@L117')
         pass
 
     # Fallback: stdlib HTMLParser
@@ -122,6 +124,7 @@ def _read_html(path: str) -> str:
     try:
         stripper.feed(raw)
     except Exception:
+        _log_caught('_read_html@L124')
         pass
     return stripper.get_text()
 
@@ -141,6 +144,7 @@ def _read_rtf(path: str) -> Optional[str]:
             )
             return out.decode("utf-8", errors="ignore")
         except (FileNotFoundError, subprocess.CalledProcessError):
+            _log_caught('_read_rtf@L143')
             return None
 
     # Non-macOS: try striprtf
@@ -151,6 +155,7 @@ def _read_rtf(path: str) -> Optional[str]:
         return rtf_to_text(rtf_src)
     except ImportError:
         # No striprtf — caller will read the file as raw text (best-effort)
+        _log_caught('_read_rtf@L152')
         return None
     except Exception as exc:
         raise FileIngestionError(f"Cannot parse RTF file: {exc}") from exc
@@ -173,6 +178,7 @@ def _read_pdf(path: str) -> str:
                     parts.append(page_text)
         return "\n".join(parts)
     except ImportError:
+        _log_caught('_read_pdf@L175')
         pass  # try next option
 
     try:
@@ -181,6 +187,7 @@ def _read_pdf(path: str) -> str:
         parts = [page.extract_text() or "" for page in reader.pages]
         return "\n".join(parts)
     except ImportError:
+        _log_caught('_read_pdf@L183')
         pass
 
     raise FileIngestionError(
@@ -266,6 +273,7 @@ def load_text_from_path(path: str) -> str:
                 raise FileIngestionError(f"Cannot read file: {exc}") from exc
 
     except FileIngestionError:
+        _log_caught('load_text_from_path@L268')
         raise
     except Exception as exc:
         raise FileIngestionError(f"Unexpected error reading {path!r}: {exc}") from exc
@@ -299,14 +307,19 @@ def save_text_to_path(text: str, path: str) -> None:
             os.replace(tmp_path, path)
         except Exception:
             # Clean up the temp file if rename failed
+            _log_caught('save_text_to_path@L300')
             try:
                 os.unlink(tmp_path)
             except OSError:
+                _log_caught('save_text_to_path@L304')
                 pass
             raise
     except FileIngestionError:
+        _log_caught('save_text_to_path@L307')
         raise
     except OSError as exc:
         raise FileIngestionError(f"Cannot save file: {exc}") from exc
     except Exception as exc:
         raise FileIngestionError(f"Unexpected error saving {path!r}: {exc}") from exc
+
+
