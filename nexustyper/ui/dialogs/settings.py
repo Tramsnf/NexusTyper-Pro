@@ -81,27 +81,31 @@ class SettingsDialog(QDialog):
         form_layout.addRow(self.enable_hotkeys_checkbox)
 
         # Remote Desktop / virtual desktop compatibility (Windows-only fix).
-        # pyautogui's keystrokes don't reach Chrome Remote Desktop, mstsc,
-        # AnyDesk, etc. because those clients only forward events that carry
-        # a hardware scancode. The shim sends KEYEVENTF_SCANCODE input via
-        # SendInput so typing reaches the remote session.
+        # On Windows, normal keystroke injection doesn't reach apps inside
+        # Chrome Remote Desktop, RDP, AnyDesk, TeamViewer, Parsec, etc. —
+        # those clients require hardware-level keyboard events. The shim
+        # routes keys through that lower-level path when this is on.
         self.rdp_mode_combo = QComboBox(self)
-        self.rdp_mode_combo.addItem("Off (use pyautogui everywhere)", "off")
-        self.rdp_mode_combo.addItem(
-            "Auto (switch when remote desktop is focused)", "auto"
-        )
-        self.rdp_mode_combo.addItem(
-            "Always on (use scancode input everywhere)", "on"
-        )
+        self.rdp_mode_combo.addItem("Off", "off")
+        self.rdp_mode_combo.addItem("Auto", "auto")
+        self.rdp_mode_combo.addItem("Always on", "on")
         self.rdp_mode_combo.setToolTip(
-            "Routes keystrokes through SendInput with hardware scancodes so they\n"
-            "propagate through Chrome Remote Desktop, mstsc, AnyDesk, TeamViewer,\n"
-            "Parsec, etc. Auto detects the remote-desktop window by title."
+            "Lets typing reach apps running inside Chrome Remote Desktop, RDP,\n"
+            "AnyDesk, TeamViewer, Parsec, and similar remote-desktop clients.\n"
+            "\n"
+            "  Off       — never use the remote-desktop path.\n"
+            "  Auto      — turn it on automatically when a remote-desktop\n"
+            "              window is focused (recommended).\n"
+            "  Always on — use the remote-desktop path everywhere.\n"
+            "\n"
+            "Windows only. macOS / Linux already work with remote desktops."
         )
         if platform.system() != "Windows":
             self.rdp_mode_combo.setEnabled(False)
-            self.rdp_mode_combo.setToolTip("Windows-only setting.")
-        form_layout.addRow("Remote Desktop compat:", self.rdp_mode_combo)
+            self.rdp_mode_combo.setToolTip(
+                "Windows-only setting. Not needed on this platform."
+            )
+        form_layout.addRow("Remote Desktop typing:", self.rdp_mode_combo)
 
         layout.addLayout(form_layout)
         buttons = QDialogButtonBox(
