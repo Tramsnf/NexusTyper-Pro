@@ -50,6 +50,23 @@ class Platform:
         """
         return "Unknown"
 
+    def active_window_title(self) -> str:
+        """Return the focused window's actual title.
+
+        Distinct from :meth:`active_app_identity`: this *does* change as the
+        title mutates and as the user switches between tabs / windows of the
+        same app. Used for browser-tab-switch detection so the focus lock
+        can pause when the user flips to a different tab in the same Chrome
+        window. Default falls back to pyautogui; macOS overrides to use the
+        Accessibility API since pyautogui's macOS path returns the app name.
+        Returns "" if no title can be obtained.
+        """
+        try:
+            import pyautogui  # type: ignore
+            return pyautogui.getActiveWindowTitle() or ""
+        except Exception:
+            return ""
+
     def release_modifiers_best_effort(self) -> None:
         """Best-effort release of stuck shift/ctrl/alt/cmd modifiers."""
         return None
