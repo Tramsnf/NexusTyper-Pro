@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   macos:
-    name: Build macOS .app + .pkg
+    name: Build macOS .app + .dmg
     runs-on: macos-latest
     # Signing secrets bound at job level so step-level `if: env.X != ''`
     # gates can see them. The signing/notarization steps fall through
@@ -22,10 +22,8 @@ jobs:
     # ad-hoc-signed unsigned-installer build.
     env:
       APPLE_APPLICATION_CERT_BASE64: ${{ secrets.APPLE_APPLICATION_CERT_BASE64 }}
-      APPLE_INSTALLER_CERT_BASE64: ${{ secrets.APPLE_INSTALLER_CERT_BASE64 }}
       APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
       APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
-      APPLE_DEVELOPER_ID_INSTALLER: ${{ secrets.APPLE_DEVELOPER_ID_INSTALLER }}
       NOTARIZE_APPLE_ID: ${{ secrets.NOTARIZE_APPLE_ID }}
       NOTARIZE_APPLE_PASSWORD: ${{ secrets.NOTARIZE_APPLE_PASSWORD }}
       NOTARIZE_TEAM_ID: ${{ secrets.NOTARIZE_TEAM_ID }}
@@ -90,16 +88,6 @@ jobs:
           echo "BUILD_KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
           rm "$RUNNER_TEMP/app.p12"
 
-      - name: Import Developer ID Installer cert
-        if: env.APPLE_INSTALLER_CERT_BASE64 != ''
-        run: |
-          KEYCHAIN="$RUNNER_TEMP/build.keychain"
-          security unlock-keychain -p "$BUILD_KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          echo "$APPLE_INSTALLER_CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/installer.p12"
-          security import "$RUNNER_TEMP/installer.p12" -k "$KEYCHAIN" \
-            -P "$APPLE_CERT_PASSWORD" -T /usr/bin/productsign
-          rm "$RUNNER_TEMP/installer.p12"
-
       - name: Sign the .app
         run: |
           if [[ -n "$APPLE_DEVELOPER_ID_APPLICATION" ]]; then
@@ -132,19 +120,19 @@ jobs:
             "NexusTyper Pro.app" \
             "NexusTyper-Pro-macOS.zip"
 
-      - name: Build .pkg installer
+      - name: Build .dmg
         run: |
-          ./installers/macos/build-pkg.sh \
+          ./installers/macos/build-dmg.sh \
             "dist/NexusTyper Pro.app" \
             "$VERSION" \
-            "dist/NexusTyper-Pro-macOS.pkg"
+            "dist/NexusTyper-Pro-macOS.dmg"
 
       - uses: actions/upload-artifact@v7
         with:
           name: NexusTyper-Pro-macOS
           path: |
             dist/*.zip
-            dist/*.pkg
+            dist/*.dmg
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -152,7 +140,7 @@ jobs:
         with:
           files: |
             dist/*.zip
-            dist/*.pkg
+            dist/*.dmg
           generate_release_notes: true
           draft: false
           prerelease: false
