@@ -10,7 +10,7 @@ PyInstaller flags; this spec is the macOS canonical.
 import os
 import platform
 import re
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 block_cipher = None
 
@@ -41,13 +41,31 @@ datas = [
 ]
 datas += collect_data_files('certifi')
 
-# AppKit is bundled by pyobjc on macOS. We only add an extra binary on
-# Darwin and only if the system framework is at the expected path.
+# pyobjc framework bridges. The macOS platform layer's AX permission
+# probe (Quartz.AXIsProcessTrusted), the Unicode-Hex typing path
+# (AppKit), and the focused-window-title read (ApplicationServices)
+# all import these at call time. Without explicit bundling PyInstaller
+# misses some of the bridge submodules, the imports raise inside the
+# packaged .app, the AX probe falls through to its "fail open" branch,
+# and the worker happily starts typing while the OS silently drops
+# every keystroke.
 binaries = []
+hidden_objc = []
 if platform.system() == "Darwin":
-    appkit = "/System/Library/Frameworks/AppKit.framework/AppKit"
-    if os.path.exists(appkit):
-        binaries.append((appkit, '.'))
+    appkit_dylib = "/System/Library/Frameworks/AppKit.framework/AppKit"
+    if os.path.exists(appkit_dylib):
+        binaries.append((appkit_dylib, '.'))
+    for _mod in ("AppKit", "Quartz", "ApplicationServices", "objc"):
+        try:
+            _datas, _binaries, _hidden = collect_all(_mod)
+            datas += _datas
+            binaries += _binaries
+            hidden_objc += _hidden
+        except Exception:
+            # collect_all raises if the module isn't installed on the
+            # build host. That's fine for non-macOS hosts; the import-
+            # closure on macOS will pick the right ones up there.
+            pass
 
 a = Analysis(
     ['NexusTyper Pro.py'],
@@ -58,7 +76,7 @@ a = Analysis(
         'pyautogui', 'pynput', 'pyperclip',
         'PyQt5', 'PyQt5.sip', 'PyQt5.QtWidgets',
         'PyQt5.QtGui', 'PyQt5.QtCore', 'PyQt5.QtSvg',
-    ] + collect_submodules('nexustyper'),
+    ] + collect_submodules('nexustyper') + hidden_objc,
     hookspath=[],
     runtime_hooks=[],
     excludes=['tkinter'],
