@@ -19,26 +19,26 @@ class MacOSPlatform(Platform):
     name = "macos"
 
     def accessibility_trusted(self, prompt: bool = False) -> bool:
+        # FAILS CLOSED on macOS. The previous behavior (fail open if Quartz
+        # couldn't import or the AX probe raised) caused the worst possible
+        # user experience: with Accessibility actually denied the bundled
+        # .app would say "trusted", start the worker, and the OS would
+        # silently drop every keystroke. Returning False instead routes the
+        # caller through _show_macos_permissions_dialog so the user gets a
+        # clear "grant Accessibility, then restart" message.
         try:
-            # Lazy import: ApplicationServices is only present on macOS.
-            try:
-                import Quartz  # type: ignore
-            except Exception:
-                # Framework unavailable — fail open.
-                _log_caught('accessibility_trusted@L25')
-                return True
-            try:
-                if prompt:
-                    options = {Quartz.kAXTrustedCheckOptionPrompt: True}
-                    return bool(Quartz.AXIsProcessTrustedWithOptions(options))
-                return bool(Quartz.AXIsProcessTrusted())
-            except Exception:
-                # Probe failure: fail open so typing isn't blocked.
-                _log_caught('accessibility_trusted@L33')
-                return True
+            import Quartz  # type: ignore
         except Exception:
-            _log_caught('accessibility_trusted@L36')
-            return True
+            _log_caught("accessibility_trusted: Quartz unavailable", level="error")
+            return False
+        try:
+            if prompt:
+                options = {Quartz.kAXTrustedCheckOptionPrompt: True}
+                return bool(Quartz.AXIsProcessTrustedWithOptions(options))
+            return bool(Quartz.AXIsProcessTrusted())
+        except Exception:
+            _log_caught("accessibility_trusted: AX probe failed", level="error")
+            return False
 
     def open_privacy_settings(self) -> None:
         try:
