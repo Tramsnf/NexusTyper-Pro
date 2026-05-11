@@ -292,17 +292,101 @@ class AutoTyperApp(QWidget):
         macOS caches the Accessibility trust per-process for some calls,
         but the AX probe itself returns fresh data — so a user who granted
         permission in System Settings and then refocused the app will see
-        the warning clear without having to restart the app for *some*
-        permission states. (A full restart is still needed for the rare
-        cases the OS caches; we tell them that in the dialog text.)
+        the warning clear. If the trust state flips from False to True
+        we also offer to restart the app, because synthetic-input APIs
+        (CGEventPost / pyautogui's underlying calls) can keep using the
+        cached "untrusted" state for the lifetime of this process even
+        after AXIsProcessTrusted starts returning True. A restart
+        guarantees every API picks up the new permission.
         """
         try:
-            if int(state) == int(Qt.ApplicationActive):
-                # Quiet re-check — no system prompt, no modal, just refresh
-                # the status-bar indicator.
-                self.check_macos_permissions(prompt=False, show_dialog=False)
+            if int(state) != int(Qt.ApplicationActive):
+                return
+            prev = getattr(self, "_last_trust_state", None)
+            trusted = self.check_macos_permissions(prompt=False, show_dialog=False)
+            if prev is False and trusted is True:
+                # Don't pile up restart prompts if the user refocuses
+                # several times before deciding.
+                if getattr(self, "_restart_prompt_open", False):
+                    return
+                self._restart_prompt_open = True
+                try:
+                    self._prompt_restart_after_permission_grant()
+                finally:
+                    self._restart_prompt_open = False
         except Exception:
             _log_caught("_on_app_state_changed")
+
+    def _prompt_restart_after_permission_grant(self) -> None:
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Information)
+        msg.setWindowTitle("Accessibility granted")
+        msg.setText("Restart NexusTyper Pro to apply the new permission.")
+        msg.setInformativeText(
+            "macOS caches the permission state per process, so a quick "
+            "restart guarantees typing works correctly. Your settings "
+            "are preserved across the restart."
+        )
+        restart_btn = msg.addButton("Restart now", QMessageBox.AcceptRole)
+        msg.addButton("Later", QMessageBox.RejectRole)
+        msg.setDefaultButton(restart_btn)
+        msg.exec_()
+        if msg.clickedButton() is restart_btn:
+            self._restart_app()
+
+    def _restart_app(self) -> None:
+        """Quit and relaunch the app.
+
+        On macOS the running process is inside a .app bundle whose path
+        is reachable by walking up from ``sys.executable``. ``open -n``
+        starts a fresh instance even though the current one is still
+        tearing down — the new instance is the one that sees the
+        refreshed Accessibility trust state. Outside a bundle (dev
+        mode), ``os.execv`` re-runs the current Python invocation in
+        place; dev runs inherit permission from the launching terminal
+        so the restart there isn't strictly necessary but keeps the
+        UX consistent.
+        """
+        try:
+            self.save_settings()
+        except Exception:
+            _log_caught("_restart_app: save_settings")
+        try:
+            self.stop_listener()
+        except Exception:
+            _log_caught("_restart_app: stop_listener")
+        try:
+            self.stop_typing()
+        except Exception:
+            _log_caught("_restart_app: stop_typing")
+
+        try:
+            if self._platform.name == "macos":
+                # In a PyInstaller --windowed bundle the executable lives at
+                #   /Applications/NexusTyper Pro.app/Contents/MacOS/NexusTyper Pro
+                # so the .app dir is 3 levels up. Walk up cautiously.
+                candidate = os.path.abspath(sys.executable)
+                app_path = None
+                for _ in range(5):
+                    candidate = os.path.dirname(candidate)
+                    if candidate.endswith(".app"):
+                        app_path = candidate
+                        break
+                if app_path:
+                    subprocess.Popen(["open", "-n", app_path])
+                else:
+                    # Dev run: re-exec the current Python invocation.
+                    os.execv(sys.executable, [sys.executable, *sys.argv])
+            else:
+                os.execv(sys.executable, [sys.executable, *sys.argv])
+        except Exception:
+            _log_caught("_restart_app: launch new instance")
+            return
+
+        try:
+            QApplication.instance().quit()
+        except Exception:
+            _log_caught("_restart_app: quit")
 
     def _ensure_macos_typing_permissions(self):
         if self._platform.name != "macos":
