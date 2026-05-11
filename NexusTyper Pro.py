@@ -171,14 +171,30 @@ class AutoTyperApp(QWidget):
         except Exception:
             _log_caught("__init__: hook applicationStateChanged")
 
-        # Background update check — fires at most once a day, silent unless
-        # an update is available. Delayed a few seconds so we never block
-        # the first paint on a slow network.
+        # Background update check — fires at most once per hour and stays
+        # silent unless an update is available. Delayed a few seconds so
+        # we never block the first paint on a slow network.
         try:
             QTimer.singleShot(2500, lambda: self._start_update_check(verbose=False))
         except Exception:
             _log_caught('__init__@L155')
             pass
+
+        # Periodic update poll while the app is open so a release published
+        # while the user is mid-session shows up in the banner within an
+        # hour without them having to click Help → Check for Updates.
+        # The _start_update_check call itself honors a 1-hour throttle, so
+        # firing every 30 minutes is safe — the second of two back-to-back
+        # ticks will no-op.
+        try:
+            self._update_poll_timer = QTimer(self)
+            self._update_poll_timer.setInterval(30 * 60 * 1000)  # 30 min
+            self._update_poll_timer.timeout.connect(
+                lambda: self._start_update_check(verbose=False)
+            )
+            self._update_poll_timer.start()
+        except Exception:
+            _log_caught("__init__: schedule update poll timer")
 
         # Cleanup pass: remove stale partial downloads and old installer
         # files from ~/Downloads so they don't accumulate or confuse the
@@ -302,6 +318,15 @@ class AutoTyperApp(QWidget):
         try:
             if int(state) != int(Qt.ApplicationActive):
                 return
+            # Also opportunistically check for a new release on every
+            # refocus. The throttle inside _start_update_check guarantees
+            # we won't spam GitHub (max once per hour); on the other
+            # hand a user who Cmd-Tabs back after lunch immediately sees
+            # any release published while they were away.
+            try:
+                self._start_update_check(verbose=False)
+            except Exception:
+                _log_caught("_on_app_state_changed: update check")
             prev = getattr(self, "_last_trust_state", None)
             trusted = self.check_macos_permissions(prompt=False, show_dialog=False)
             if prev is False and trusted is True:
@@ -2607,13 +2632,15 @@ class AutoTyperApp(QWidget):
                                         "Update checks are not configured for this build.")
             return
         # Throttle background checks. Manual checks bypass the throttle.
+        # 1 hour, not 24 — the banner should appear within a reasonable
+        # window of a new release going live, not the next day.
         if not verbose:
             try:
                 last = float(self.settings.value("updateCheckLastEpoch", 0.0))
             except Exception:
                 _log_caught('_start_update_check@L2322')
                 last = 0.0
-            if (time.time() - last) < 86400:
+            if (time.time() - last) < 3600:
                 return
         existing = getattr(self, "_update_thread", None)
         if existing is not None:
