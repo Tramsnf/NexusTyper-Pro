@@ -162,6 +162,18 @@ class AutoTyperApp(QWidget):
             _log_caught("__init__: schedule permission check")
             self.check_macos_permissions(prompt=True, show_dialog=True)
 
+        # Proactively register for macOS Input Monitoring on launch. macOS
+        # only adds an app to the Privacy & Security → Input Monitoring
+        # list when the app *asks* — either via IOHIDRequestAccess or by
+        # creating a Quartz event tap. Without this kick, NexusTyper Pro
+        # never appears in the list, so the user can't toggle it on.
+        # Idempotent: macOS shows the system prompt once per process; if
+        # the permission is already granted/denied this is a silent no-op.
+        try:
+            QTimer.singleShot(700, self._register_input_monitoring_if_needed)
+        except Exception:
+            _log_caught("__init__: schedule IM registration")
+
         # Re-check on window-focus return so a user who granted permission
         # while switched away (in System Settings) sees the in-app warning
         # clear next time they refocus, instead of having to restart.
@@ -250,6 +262,52 @@ class AutoTyperApp(QWidget):
 
     def _open_macos_input_monitoring_settings(self):
         self._open_macos_settings_url(MACOS_INPUT_MONITORING_SETTINGS_URL)
+
+    def _register_input_monitoring_if_needed(self) -> None:
+        """Make sure NexusTyper Pro appears in System Settings →
+        Privacy & Security → Input Monitoring.
+
+        macOS only populates that list when the app explicitly asks
+        for the permission (or actively tries to listen to events).
+        IOHIDRequestAccess(kIOHIDRequestTypeListenEvent=1) is the
+        registration call: the first time it runs per process it
+        either returns the current state silently or pops the system
+        prompt and adds the entry to the Privacy & Security pane.
+
+        Skip when:
+          * not on macOS,
+          * Input Monitoring is already True (no need),
+          * we ran this once already this session.
+
+        We do NOT skip when state is False — sometimes False means
+        "denied but the entry exists", in which case the call is a
+        cheap no-op; sometimes it means "the framework couldn't
+        decide", in which case we want the prompt to fire.
+        """
+        if self._platform.name != "macos":
+            return
+        if getattr(self, "_im_registration_done", False):
+            return
+        try:
+            current = self._platform.input_monitoring_trusted()
+        except Exception:
+            _log_caught("_register_input_monitoring_if_needed: probe")
+            current = None
+        if current is True:
+            self._im_registration_done = True
+            return
+        try:
+            self._platform.request_input_monitoring()
+            self._im_registration_done = True
+            try:
+                logger.info(
+                    "Triggered macOS Input Monitoring registration via "
+                    "IOHIDRequestAccess",
+                )
+            except Exception:
+                _log_caught("_register_input_monitoring_if_needed: log")
+        except Exception:
+            _log_caught("_register_input_monitoring_if_needed: request")
 
     def _running_bundle_identifier(self):
         """Return the running .app's CFBundleIdentifier, or None.
