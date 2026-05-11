@@ -7,40 +7,123 @@ the app).
 """
 
 from __future__ import annotations
-from nexustyper.services.logging_setup import _log_caught
 
 import subprocess
+from typing import Optional
+
+from nexustyper.services.logging_setup import _log_caught
 
 from . import Platform
 from nexustyper.constants import MACOS_ACCESSIBILITY_SETTINGS_URL
+
+
+# --- Direct framework symbol resolution via ctypes -----------------------
+# The PyObjC `Quartz` / `ApplicationServices` modules don't reliably bridge
+# `AXIsProcessTrusted` or `IOHIDCheckAccess` — depending on the PyObjC
+# version they may be lazy-bound to nothing and raise AttributeError on
+# first access. The frameworks themselves always exist on macOS, so we
+# load them with ctypes and call the C symbols directly. This works in
+# every Python install (system, venv, PyInstaller bundle) and across
+# every PyObjC version.
+
+def _macos_ax_trusted() -> Optional[bool]:
+    """Return True/False per AXIsProcessTrusted; None if the framework
+    can't be loaded at all (extremely unlikely on a real Mac)."""
+    try:
+        import ctypes
+        appsvcs = ctypes.CDLL(
+            "/System/Library/Frameworks/ApplicationServices.framework/"
+            "ApplicationServices",
+        )
+        appsvcs.AXIsProcessTrusted.argtypes = []
+        appsvcs.AXIsProcessTrusted.restype = ctypes.c_bool
+        return bool(appsvcs.AXIsProcessTrusted())
+    except Exception:
+        _log_caught("_macos_ax_trusted: ctypes call failed", level="error")
+        return None
+
+
+# IOKit's IOHIDCheckAccess / IOHIDRequestAccess request types.
+_K_IOHID_REQ_TYPE_POSTEVENT = 0  # AX-equivalent for posting events
+_K_IOHID_REQ_TYPE_LISTENEVENT = 1  # what the hotkey listener needs
+
+
+def _iokit():
+    """Lazy-load /System/Library/Frameworks/IOKit.framework/IOKit and bind
+    the two symbols we need. Cached on the module so repeated calls don't
+    re-CDLL the framework."""
+    cache = getattr(_iokit, "_cached", None)
+    if cache is not None:
+        return cache
+    try:
+        import ctypes
+        iokit = ctypes.CDLL("/System/Library/Frameworks/IOKit.framework/IOKit")
+        iokit.IOHIDCheckAccess.argtypes = [ctypes.c_uint32]
+        iokit.IOHIDCheckAccess.restype = ctypes.c_uint32
+        iokit.IOHIDRequestAccess.argtypes = [ctypes.c_uint32]
+        iokit.IOHIDRequestAccess.restype = ctypes.c_bool
+        _iokit._cached = iokit  # type: ignore[attr-defined]
+        return iokit
+    except Exception:
+        _log_caught("_iokit: load failed")
+        _iokit._cached = False  # type: ignore[attr-defined]
+        return None
+
+
+def _macos_input_monitoring_status() -> Optional[bool]:
+    """Return True/False/None per IOHIDCheckAccess(kIOHIDRequestTypeListenEvent).
+    None means the framework symbol isn't available."""
+    iokit = _iokit()
+    if not iokit:
+        return None
+    try:
+        status = int(iokit.IOHIDCheckAccess(_K_IOHID_REQ_TYPE_LISTENEVENT))
+    except Exception:
+        _log_caught("_macos_input_monitoring_status: probe raised")
+        return None
+    # kIOHIDAccessTypeGranted = 0, kIOHIDAccessTypeDenied = 1, kIOHIDAccessTypeUnknown = 2
+    if status == 0:
+        return True
+    if status == 1:
+        return False
+    return None
+
+
+def _macos_request_input_monitoring() -> None:
+    iokit = _iokit()
+    if not iokit:
+        return
+    try:
+        iokit.IOHIDRequestAccess(_K_IOHID_REQ_TYPE_LISTENEVENT)
+    except Exception:
+        _log_caught("_macos_request_input_monitoring: req raised")
 
 
 class MacOSPlatform(Platform):
     name = "macos"
 
     def accessibility_trusted(self, prompt: bool = False) -> bool:
-        # FAILS CLOSED on macOS. The previous behavior (fail open if Quartz
-        # couldn't import or the AX probe raised) caused the worst possible
-        # user experience: with Accessibility actually denied the bundled
-        # .app would say "trusted", start the worker, and the OS would
-        # silently drop every keystroke. Returning False instead routes the
-        # caller through _show_macos_permissions_dialog so the user gets a
-        # clear "grant Accessibility, then restart" message.
-        try:
-            import Quartz  # type: ignore
-        except Exception:
-            _log_caught("accessibility_trusted: Quartz unavailable", level="error")
+        # FAILS CLOSED on macOS. The previous behavior (fail open if the
+        # probe raised) caused the worst possible UX: with Accessibility
+        # actually denied the .app would say "trusted", start the worker,
+        # and the OS would silently drop every keystroke. Returning False
+        # routes the caller through _show_macos_permissions_dialog so the
+        # user gets an actionable message.
+        #
+        # The `prompt` parameter is accepted for backward compatibility but
+        # ignored — AXIsProcessTrustedWithOptions(prompt=True) requires
+        # constructing a CFDictionary (CoreFoundation), which is awkward
+        # via ctypes and provides no UX benefit over our own dialog.
+        result = _macos_ax_trusted()
+        if result is None:
+            _log_caught(
+                "accessibility_trusted: framework unavailable, failing closed",
+                level="error",
+            )
             return False
-        try:
-            if prompt:
-                options = {Quartz.kAXTrustedCheckOptionPrompt: True}
-                return bool(Quartz.AXIsProcessTrustedWithOptions(options))
-            return bool(Quartz.AXIsProcessTrusted())
-        except Exception:
-            _log_caught("accessibility_trusted: AX probe failed", level="error")
-            return False
+        return result
 
-    def input_monitoring_trusted(self) -> "Optional[bool]":
+    def input_monitoring_trusted(self) -> Optional[bool]:
         """Whether the app has macOS Input Monitoring permission.
 
         Distinct from Accessibility:
@@ -57,42 +140,17 @@ class MacOSPlatform(Platform):
           False  - explicitly denied
           None   - unknown / not yet asked / framework can't probe
         """
-        try:
-            import Quartz  # type: ignore
-        except Exception:
-            _log_caught("input_monitoring_trusted: Quartz unavailable")
-            return None
-        # IOHIDCheckAccess(kIOHIDRequestTypeListenEvent=1) returns:
-        #   0 = granted, 1 = denied, 2 = unknown.
-        try:
-            check = getattr(Quartz, "IOHIDCheckAccess", None)
-            if check is None:
-                return None
-            status = int(check(1))
-            if status == 0:
-                return True
-            if status == 1:
-                return False
-            return None
-        except Exception:
-            _log_caught("input_monitoring_trusted: IOHIDCheckAccess raised")
-            return None
+        return _macos_input_monitoring_status()
 
     def request_input_monitoring(self) -> None:
         """Pop the system Input Monitoring prompt for the running app.
 
-        IOHIDRequestAccess shows the system dialog the *first* time it's
-        called for a process; subsequent calls are no-ops. After the user
-        clicks Allow / Deny in System Settings the app must restart for
-        the new state to take effect (same per-process cache as AX).
+        IOHIDRequestAccess shows the system dialog the first time it's
+        called per process; subsequent calls are no-ops. After the user
+        grants/denies, the app must restart for the new state to take
+        effect (same per-process cache as AX).
         """
-        try:
-            import Quartz  # type: ignore
-            req = getattr(Quartz, "IOHIDRequestAccess", None)
-            if req is not None:
-                req(1)
-        except Exception:
-            _log_caught("request_input_monitoring")
+        _macos_request_input_monitoring()
 
     def open_privacy_settings(self) -> None:
         try:
