@@ -458,6 +458,18 @@ class AutoTyperApp(QWidget):
         # as "assume granted" so unbuilt-against-IOKit installations don't
         # nag the user about something we can't actually verify.
         ok = bool(ax) and (im is not False)
+
+        # Auto-recover from TCC signature mismatch after an upgrade. If
+        # the previous session's app version is different from the current
+        # one AND we previously had trust AND we don't anymore, the
+        # overwhelming likelihood is that macOS revoked trust because the
+        # new build's binary signature doesn't match the stored TCC entry
+        # (every ad-hoc-signed release has a different signature). We
+        # bundle-scoped reset and notify the user — saves them clicking
+        # "Reset NexusTyper trust" by hand.
+        if not ok and not getattr(self, "_auto_reset_done_this_session", False):
+            self._maybe_auto_reset_after_upgrade(ax, im)
+
         # Only log when the *combined* state changes, otherwise focus-driven
         # re-checks would spam the log every time the user Cmd-Tabs back.
         if getattr(self, "_last_trust_state", None) != ok:
@@ -468,10 +480,118 @@ class AutoTyperApp(QWidget):
             except Exception:
                 _log_caught("check_macos_permissions: log trust state")
             self._last_trust_state = ok
+
+        # Persist the *good* state so the next launch can detect a regression.
+        # Don't persist after an auto-reset run (the False values would mask
+        # the next session's recovery signal).
+        if not getattr(self, "_auto_reset_done_this_session", False):
+            try:
+                self.settings.setValue("macosLastSeenAppVersion", APP_VERSION)
+                self.settings.setValue("macosLastAxTrusted", bool(ax))
+                self.settings.setValue("macosLastImTrusted", im is True)
+            except Exception:
+                _log_caught("check_macos_permissions: persist trust state")
+
         self._update_permission_status(ok, ax=ax, im=im)
         if not ok and show_dialog:
             self._show_macos_permissions_dialog("macOS permission required")
         return ok
+
+    def _maybe_auto_reset_after_upgrade(self, ax: bool, im) -> None:
+        """Auto-reset bundle-scoped TCC if the app was just upgraded and
+        previously-granted permissions look revoked. Targeted enough to
+        avoid false positives:
+
+          * Only fires when the running bundle has a real CFBundleIdentifier
+            (so dev mode never triggers — we'd be resetting whatever
+            launched python).
+          * Only fires when the persisted "last seen app version" differs
+            from APP_VERSION — a user who genuinely revoked permission
+            on the *same* version is left alone.
+          * Only fires when at least one of the two permissions was
+            previously True — a fresh install where the user hasn't yet
+            granted anything is left alone.
+          * Only fires once per session (`_auto_reset_done_this_session`
+            guard) so we don't loop on the next focus-return check.
+        """
+        bid = self._running_bundle_identifier()
+        if not bid:
+            return
+        try:
+            last_version = str(self.settings.value("macosLastSeenAppVersion", "") or "")
+            last_ax = bool(self.settings.value("macosLastAxTrusted", False, type=bool))
+            last_im = bool(self.settings.value("macosLastImTrusted", False, type=bool))
+        except Exception:
+            _log_caught("_maybe_auto_reset_after_upgrade: read settings")
+            return
+
+        # Need a recorded prior version to know this is an upgrade.
+        if not last_version or last_version == APP_VERSION:
+            return
+        # Need at least one prior True so we know there's a stale entry to
+        # reset. Without that, the user may simply have not granted yet.
+        if not (last_ax or last_im):
+            return
+        # Need an actual regression now.
+        ax_regressed = (last_ax and not ax)
+        im_regressed = (last_im and im is False)
+        if not (ax_regressed or im_regressed):
+            return
+
+        try:
+            logger.info(
+                f"Auto-resetting macOS TCC after upgrade {last_version} → "
+                f"{APP_VERSION} (last trusted AX={last_ax} IM={last_im}, "
+                f"now AX={ax} IM={im})"
+            )
+        except Exception:
+            _log_caught("_maybe_auto_reset_after_upgrade: log")
+
+        self._auto_reset_done_this_session = True
+        if not self._reset_macos_tcc_for_self():
+            return
+
+        # Best-effort prompt the user to re-grant. Non-blocking via QTimer
+        # so we don't fight the existing in-flight permission dialog or
+        # the launch flow.
+        try:
+            QTimer.singleShot(800, self._notify_after_auto_reset)
+        except Exception:
+            _log_caught("_maybe_auto_reset_after_upgrade: schedule notify")
+
+    def _notify_after_auto_reset(self) -> None:
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Information)
+        msg.setWindowTitle("Permissions refreshed after upgrade")
+        msg.setText(
+            "macOS lost trust in NexusTyper Pro after the version upgrade "
+            "(common for unsigned / ad-hoc-signed builds — the new binary's "
+            "signature doesn't match the trust record from the previous "
+            "version)."
+        )
+        msg.setInformativeText(
+            "Cleared NexusTyper Pro's macOS permission entries automatically. "
+            "Re-grant Accessibility (and Input Monitoring if you use global "
+            "hotkeys) in System Settings, then click Restart.\n\n"
+            "Other apps' permissions were not touched."
+        )
+        ax_btn = msg.addButton("Open Accessibility settings", QMessageBox.ActionRole)
+        im_btn = msg.addButton("Open Input Monitoring settings", QMessageBox.ActionRole)
+        restart_btn = msg.addButton("Restart NexusTyper Pro", QMessageBox.AcceptRole)
+        msg.addButton("Later", QMessageBox.RejectRole)
+        msg.setDefaultButton(restart_btn)
+        msg.exec_()
+        clicked = msg.clickedButton()
+        if clicked is ax_btn:
+            self._open_macos_accessibility_settings()
+        elif clicked is im_btn:
+            try:
+                self._platform.request_input_monitoring()
+            except Exception:
+                _log_caught("_notify_after_auto_reset: req IM")
+            self._open_macos_input_monitoring_settings()
+        elif clicked is restart_btn:
+            self._restart_app()
 
     def _update_permission_status(self, ok: bool, ax=None, im=None) -> None:
         if self._platform.name != "macos":
