@@ -35,6 +35,24 @@ class Platform:
         """
         return True
 
+    def input_monitoring_trusted(self):
+        """Return True if the app may LISTEN to system-wide key events.
+
+        Distinct from accessibility_trusted, which gates synthetic key
+        INJECTION. Returns ``True`` (or no-ops to True) on Windows/Linux
+        where there's no equivalent permission. On macOS returns
+        True/False/None per the AX-style three-state probe (None means
+        "not yet asked / can't determine").
+        """
+        return True
+
+    def request_input_monitoring(self) -> None:
+        """Trigger the OS prompt for Input Monitoring access, if any.
+
+        macOS only. No-op on other platforms.
+        """
+        return None
+
     def open_privacy_settings(self) -> None:
         """Open the OS settings pane for accessibility, if any.
 

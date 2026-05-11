@@ -27,6 +27,9 @@ MISTAKE_CHANCE = 0.02
 MACOS_ACCESSIBILITY_SETTINGS_URL = (
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
 )
+MACOS_INPUT_MONITORING_SETTINGS_URL = (
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+)
 
 if platform.system() == "Darwin":
     DEFAULT_START_HOTKEY = "Cmd+Alt+S"
