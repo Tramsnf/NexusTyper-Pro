@@ -80,9 +80,14 @@ class UpdateChecker(QObject):
 
         Match order per platform mirrors the names produced by the release
         workflow (see .github/workflows/release.yml):
-          macOS   → *-macOS.pkg
+          macOS   → *-macOS.dmg (preferred), *-macOS.pkg (legacy)
           Windows → *-Windows-Setup.exe
           Linux   → *_amd64.deb
+
+        macOS picks .dmg first because that's what the workflow has shipped
+        since v3.7.6; the .pkg fallback keeps the in-app updater honoring
+        older releases (≤ v3.7.4) so a long-stale install can still
+        auto-update to the newest available DMG via two hops.
         """
         if not assets:
             return None
@@ -95,18 +100,40 @@ class UpdateChecker(QObject):
             "aarch64": "arm64", "arm64": "arm64",
             "armv7l": "armhf",
         }.get(platform.machine().lower(), "amd64")
-        for a in assets:
+
+        def _matches(a, predicate):
             name = (a.get("name") or "").lower()
             url = a.get("browser_download_url")
-            if not url or not name:
-                continue
-            size = int(a.get("size") or 0)
-            if sysname == "Darwin" and name.endswith(".pkg"):
-                return {"url": url, "name": a["name"], "size": size}
-            if sysname == "Windows" and name.endswith(".exe") and "setup" in name:
-                return {"url": url, "name": a["name"], "size": size}
-            if sysname == "Linux" and name.endswith(f"_{deb_arch}.deb"):
-                return {"url": url, "name": a["name"], "size": size}
+            if not url or not name or not predicate(name):
+                return None
+            return {"url": url, "name": a["name"], "size": int(a.get("size") or 0)}
+
+        if sysname == "Darwin":
+            # Prefer .dmg over .pkg if both are attached.
+            for a in assets:
+                hit = _matches(a, lambda n: n.endswith(".dmg"))
+                if hit:
+                    return hit
+            for a in assets:
+                hit = _matches(a, lambda n: n.endswith(".pkg"))
+                if hit:
+                    return hit
+            return None
+
+        if sysname == "Windows":
+            for a in assets:
+                hit = _matches(a, lambda n: n.endswith(".exe") and "setup" in n)
+                if hit:
+                    return hit
+            return None
+
+        if sysname == "Linux":
+            for a in assets:
+                hit = _matches(a, lambda n: n.endswith(f"_{deb_arch}.deb"))
+                if hit:
+                    return hit
+            return None
+
         return None
 
     @pyqtSlot()
