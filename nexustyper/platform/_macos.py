@@ -40,6 +40,60 @@ class MacOSPlatform(Platform):
             _log_caught("accessibility_trusted: AX probe failed", level="error")
             return False
 
+    def input_monitoring_trusted(self) -> "Optional[bool]":
+        """Whether the app has macOS Input Monitoring permission.
+
+        Distinct from Accessibility:
+          * Accessibility (AX) is required for synthetic key INJECTION via
+            CGEventPost — that's the typing path.
+          * Input Monitoring is required for LISTENING to system-wide key
+            events via Quartz event taps — that's how our pynput global
+            hotkey listener works.
+        On macOS Sequoia (15.x), Apple split these two clearly: granting
+        Accessibility no longer implicitly grants Input Monitoring.
+
+        Returns:
+          True   - granted
+          False  - explicitly denied
+          None   - unknown / not yet asked / framework can't probe
+        """
+        try:
+            import Quartz  # type: ignore
+        except Exception:
+            _log_caught("input_monitoring_trusted: Quartz unavailable")
+            return None
+        # IOHIDCheckAccess(kIOHIDRequestTypeListenEvent=1) returns:
+        #   0 = granted, 1 = denied, 2 = unknown.
+        try:
+            check = getattr(Quartz, "IOHIDCheckAccess", None)
+            if check is None:
+                return None
+            status = int(check(1))
+            if status == 0:
+                return True
+            if status == 1:
+                return False
+            return None
+        except Exception:
+            _log_caught("input_monitoring_trusted: IOHIDCheckAccess raised")
+            return None
+
+    def request_input_monitoring(self) -> None:
+        """Pop the system Input Monitoring prompt for the running app.
+
+        IOHIDRequestAccess shows the system dialog the *first* time it's
+        called for a process; subsequent calls are no-ops. After the user
+        clicks Allow / Deny in System Settings the app must restart for
+        the new state to take effect (same per-process cache as AX).
+        """
+        try:
+            import Quartz  # type: ignore
+            req = getattr(Quartz, "IOHIDRequestAccess", None)
+            if req is not None:
+                req(1)
+        except Exception:
+            _log_caught("request_input_monitoring")
+
     def open_privacy_settings(self) -> None:
         try:
             subprocess.Popen(["open", MACOS_ACCESSIBILITY_SETTINGS_URL])

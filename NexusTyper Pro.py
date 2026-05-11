@@ -53,6 +53,7 @@ from nexustyper.constants import (
     DEFAULT_MIN_WPM, DEFAULT_MAX_WPM, MIN_WPM_LIMIT, MAX_WPM_LIMIT,
     DEFAULT_LAPS, DEFAULT_DELAY, MISTAKE_CHANCE,
     MACOS_ACCESSIBILITY_SETTINGS_URL,
+    MACOS_INPUT_MONITORING_SETTINGS_URL,
     DEFAULT_START_HOTKEY, DEFAULT_STOP_HOTKEY, DEFAULT_RESUME_HOTKEY,
 )
 from nexustyper.platform import current as _platform_current
@@ -226,60 +227,141 @@ class AutoTyperApp(QWidget):
     def _looks_like_math(self, t: str) -> bool:
         return looks_like_math(t)
 
-    def _open_macos_accessibility_settings(self):
+    def _open_macos_settings_url(self, url: str) -> None:
         try:
-            if QDesktopServices.openUrl(QUrl(MACOS_ACCESSIBILITY_SETTINGS_URL)):
+            if QDesktopServices.openUrl(QUrl(url)):
                 return
         except Exception:
-            _log_caught('_open_macos_accessibility_settings@L184')
-            pass
+            _log_caught('_open_macos_settings_url: openUrl')
         try:
-            subprocess.Popen(["open", MACOS_ACCESSIBILITY_SETTINGS_URL])
+            subprocess.Popen(["open", url])
         except Exception:
-            _log_caught('_open_macos_accessibility_settings@L188')
-            pass
+            _log_caught('_open_macos_settings_url: open')
+
+    def _open_macos_accessibility_settings(self):
+        self._open_macos_settings_url(MACOS_ACCESSIBILITY_SETTINGS_URL)
+
+    def _open_macos_input_monitoring_settings(self):
+        self._open_macos_settings_url(MACOS_INPUT_MONITORING_SETTINGS_URL)
+
+    def _macos_permission_summary(self):
+        """Return (ax_trusted, im_trusted, missing_list) for the dialog/banner.
+
+        ``im_trusted`` is True / False / None per the three-state IOHID
+        probe; we treat None as "assume granted" so we don't hassle users
+        on builds where the framework can't introspect the state.
+        """
+        ax = self._platform.accessibility_trusted(prompt=False)
+        im = self._platform.input_monitoring_trusted()
+        missing = []
+        if not ax:
+            missing.append("Accessibility")
+        if im is False:  # explicit denial only; None means "unknown"
+            missing.append("Input Monitoring")
+        return ax, im, missing
 
     def _show_macos_permissions_dialog(self, title, blocking=False):
+        ax, im, missing = self._macos_permission_summary()
+
+        # If the user just toggled the permission ON in Settings, macOS may
+        # still cache the old "untrusted" state for this process. We surface
+        # a Restart button regardless of detection so the user always has
+        # an escape hatch.
         msg = QMessageBox(self)
-        msg.setIcon(QMessageBox.Warning)
+        msg.setIcon(QMessageBox.Warning if missing else QMessageBox.Information)
         msg.setWindowTitle(title)
-        msg.setText("NexusTyper Pro needs macOS Accessibility permission before it can type into other apps.")
-        msg.setInformativeText(
-            "Open Privacy & Security, enable NexusTyper Pro under Accessibility, "
-            "then start typing again. If the app is already listed, toggle it off and on."
+
+        ax_mark = "✅" if ax else "❌"
+        if im is True:
+            im_mark = "✅"
+        elif im is False:
+            im_mark = "❌"
+        else:
+            im_mark = "❓"
+
+        msg.setText(
+            f"NexusTyper Pro needs two macOS permissions:\n\n"
+            f"  {ax_mark}  Accessibility — required to type into other apps\n"
+            f"  {im_mark}  Input Monitoring — required for global hotkeys\n"
         )
-        settings_btn = msg.addButton("Open Privacy Settings", QMessageBox.AcceptRole)
-        msg.addButton("OK", QMessageBox.RejectRole)
+
+        info_lines = []
+        if missing:
+            info_lines.append(
+                "Open Privacy & Security, enable NexusTyper Pro for the "
+                "missing item(s), then click Restart below. If the app is "
+                "already listed but the toggle looks on, toggle it OFF and "
+                "back ON to force macOS to re-verify the binary."
+            )
+        else:
+            info_lines.append(
+                "Both permissions look granted. If typing still doesn't "
+                "work, click Restart — macOS sometimes caches the previous "
+                "untrusted state inside this process and needs a fresh "
+                "launch to pick up the new state."
+            )
+        msg.setInformativeText("\n\n".join(info_lines))
+
+        ax_btn = im_btn = None
+        if not ax:
+            ax_btn = msg.addButton("Open Accessibility settings", QMessageBox.ActionRole)
+        if im is False:
+            im_btn = msg.addButton("Open Input Monitoring settings", QMessageBox.ActionRole)
+        restart_btn = msg.addButton("Restart NexusTyper Pro", QMessageBox.AcceptRole)
+        msg.addButton("Later", QMessageBox.RejectRole)
+        msg.setDefaultButton(restart_btn)
         msg.exec_()
-        if msg.clickedButton() is settings_btn:
+
+        clicked = msg.clickedButton()
+        if ax_btn is not None and clicked is ax_btn:
             self._open_macos_accessibility_settings()
-        if blocking:
             try:
-                self.status_label.setText("Status: macOS Accessibility permission required.")
+                self._platform.request_input_monitoring()
             except Exception:
-                _log_caught('_show_macos_permissions_dialog@L208')
-                pass
+                _log_caught("_show_macos_permissions_dialog: req IM")
+        elif im_btn is not None and clicked is im_btn:
+            try:
+                self._platform.request_input_monitoring()
+            except Exception:
+                _log_caught("_show_macos_permissions_dialog: req IM")
+            self._open_macos_input_monitoring_settings()
+        elif clicked is restart_btn:
+            self._restart_app()
+
+        if blocking and missing:
+            try:
+                self.status_label.setText(
+                    f"Status: macOS permission required: {', '.join(missing)}."
+                )
+            except Exception:
+                _log_caught('_show_macos_permissions_dialog: status set')
 
     def check_macos_permissions(self, prompt=False, show_dialog=True):
         if self._platform.name != "macos":
             return True
-        trusted = self._platform.accessibility_trusted(prompt=prompt)
-        # Only log when state changes, otherwise the focus-driven re-checks
-        # would spam the log every time the user Cmd-Tabs back.
-        if getattr(self, "_last_trust_state", None) != trusted:
+        ax = self._platform.accessibility_trusted(prompt=prompt)
+        im = self._platform.input_monitoring_trusted()
+        # We require Accessibility (typing). Input Monitoring is required
+        # for the global hotkey listener; we treat IM == None ("unknown")
+        # as "assume granted" so unbuilt-against-IOKit installations don't
+        # nag the user about something we can't actually verify.
+        ok = bool(ax) and (im is not False)
+        # Only log when the *combined* state changes, otherwise focus-driven
+        # re-checks would spam the log every time the user Cmd-Tabs back.
+        if getattr(self, "_last_trust_state", None) != ok:
             try:
-                logger.info(f"macOS Accessibility trusted={trusted}")
+                logger.info(
+                    f"macOS permissions: AX={ax} InputMonitoring={im} ok={ok}"
+                )
             except Exception:
                 _log_caught("check_macos_permissions: log trust state")
-            self._last_trust_state = trusted
-        # Update the persistent status-bar indicator so the user can always
-        # see whether typing will work, not just on Start click.
-        self._update_permission_status(trusted)
-        if not trusted and show_dialog:
+            self._last_trust_state = ok
+        self._update_permission_status(ok, ax=ax, im=im)
+        if not ok and show_dialog:
             self._show_macos_permissions_dialog("macOS permission required")
-        return trusted
+        return ok
 
-    def _update_permission_status(self, trusted: bool) -> None:
+    def _update_permission_status(self, ok: bool, ax=None, im=None) -> None:
         if self._platform.name != "macos":
             return
         try:
@@ -287,18 +369,25 @@ class AutoTyperApp(QWidget):
             if label is None:
                 return
             current = label.text() or ""
-            if trusted:
+            if ok:
                 # Clear our previous warning if it's still showing; don't
                 # stomp on an unrelated status the worker may have set.
-                if "Accessibility" in current:
+                if "macOS permission" in current or "Accessibility" in current:
                     label.setText("Status: Ready.")
-            else:
-                label.setText(
-                    "Status: ⚠ macOS Accessibility permission not granted "
-                    "— typing will be blocked. Open Settings → Privacy & "
-                    "Security → Accessibility, enable NexusTyper Pro, then "
-                    "restart the app."
-                )
+                return
+            missing = []
+            if ax is False:
+                missing.append("Accessibility")
+            if im is False:
+                missing.append("Input Monitoring")
+            if not missing:
+                missing.append("Accessibility")
+            label.setText(
+                "Status: ⚠ macOS permission required — "
+                f"{' + '.join(missing)}. Click Help → Diagnostics for "
+                "details, or grant in System Settings → Privacy & "
+                "Security and restart the app."
+            )
         except Exception:
             _log_caught("_update_permission_status")
 
