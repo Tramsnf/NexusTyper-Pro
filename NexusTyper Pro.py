@@ -394,12 +394,22 @@ class AutoTyperApp(QWidget):
         return ax, im, missing
 
     def _show_macos_permissions_dialog(self, title, blocking=False):
+        # Once-per-session guard. After the first time the user sees and
+        # dismisses this dialog, we stop popping it on focus return /
+        # background re-checks. The persistent in-window banner and the
+        # status bar continue to surface the missing permission, so the
+        # user is never left in the dark — they just aren't repeatedly
+        # interrupted by the same modal. Forced calls (blocking=True
+        # from start_typing's permission gate) bypass the guard.
+        if (
+            getattr(self, "_permissions_dialog_shown_this_session", False)
+            and not blocking
+        ):
+            return
+        self._permissions_dialog_shown_this_session = True
+
         ax, im, missing = self._macos_permission_summary()
 
-        # If the user just toggled the permission ON in Settings, macOS may
-        # still cache the old "untrusted" state for this process. We surface
-        # a Restart button regardless of detection so the user always has
-        # an escape hatch.
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Warning if missing else QMessageBox.Information)
         msg.setWindowTitle(title)
@@ -421,17 +431,17 @@ class AutoTyperApp(QWidget):
         info_lines = []
         if missing:
             info_lines.append(
-                "Open Privacy & Security, enable NexusTyper Pro for the "
-                "missing item(s), then click Restart below. If the app is "
-                "already listed but the toggle looks on, toggle it OFF and "
-                "back ON to force macOS to re-verify the binary."
+                "Open Privacy & Security and enable NexusTyper Pro for the "
+                "missing item(s). If the app isn't in the list, click + and "
+                "add /Applications/NexusTyper Pro.app. Then click Restart "
+                "below — macOS won't pick up the new permission until the "
+                "app restarts."
             )
         else:
             info_lines.append(
                 "Both permissions look granted. If typing still doesn't "
                 "work, click Restart — macOS sometimes caches the previous "
-                "untrusted state inside this process and needs a fresh "
-                "launch to pick up the new state."
+                "untrusted state and needs a fresh launch to pick it up."
             )
         msg.setInformativeText("\n\n".join(info_lines))
 
@@ -477,24 +487,16 @@ class AutoTyperApp(QWidget):
             # Bundle-scoped reset: only NexusTyper's entries are removed.
             # Then guide the user back through grant + restart.
             self._reset_macos_tcc_for_self()
-            follow = QMessageBox(self)
-            follow.setIcon(QMessageBox.Information)
-            follow.setWindowTitle("Trust state reset")
-            follow.setText(
-                "Cleared NexusTyper Pro's macOS permission entries.\n"
-                "Re-grant in the panel that just opened, then click Restart."
-            )
-            follow.setInformativeText(
-                "Only NexusTyper Pro was reset — every other app you've "
-                "granted Accessibility / Input Monitoring to is untouched."
-            )
-            settings_btn = follow.addButton(
-                "Open Privacy & Security", QMessageBox.AcceptRole,
-            )
-            follow.addButton("Later", QMessageBox.RejectRole)
-            follow.exec_()
-            if follow.clickedButton() is settings_btn:
-                self._open_macos_accessibility_settings()
+            # No second modal — open System Settings directly and put a
+            # one-line note in the status bar. Less interruption.
+            self._open_macos_accessibility_settings()
+            try:
+                self.status_label.setText(
+                    "Status: NexusTyper trust cleared — re-grant in the "
+                    "Privacy panel that just opened, then quit and relaunch."
+                )
+            except Exception:
+                _log_caught("_show_macos_permissions_dialog: reset status")
         elif clicked is restart_btn:
             self._restart_app()
 
@@ -609,47 +611,22 @@ class AutoTyperApp(QWidget):
         if not self._reset_macos_tcc_for_self():
             return
 
-        # Best-effort prompt the user to re-grant. Non-blocking via QTimer
-        # so we don't fight the existing in-flight permission dialog or
-        # the launch flow.
+        # No second modal — the consolidated permission dialog (which
+        # the focus-return / launch path will fire) tells the user
+        # everything they need. Just put a one-line note in the status
+        # bar so they know an automatic reset happened, and open the
+        # Accessibility settings for them in the background.
         try:
-            QTimer.singleShot(800, self._notify_after_auto_reset)
+            self.status_label.setText(
+                "Status: Permissions auto-reset after upgrade — re-grant "
+                "in System Settings, then restart."
+            )
         except Exception:
-            _log_caught("_maybe_auto_reset_after_upgrade: schedule notify")
-
-    def _notify_after_auto_reset(self) -> None:
-        msg = QMessageBox(self)
-        msg.setIcon(QMessageBox.Information)
-        msg.setWindowTitle("Permissions refreshed after upgrade")
-        msg.setText(
-            "macOS lost trust in NexusTyper Pro after the version upgrade "
-            "(common for unsigned / ad-hoc-signed builds — the new binary's "
-            "signature doesn't match the trust record from the previous "
-            "version)."
-        )
-        msg.setInformativeText(
-            "Cleared NexusTyper Pro's macOS permission entries automatically. "
-            "Re-grant Accessibility (and Input Monitoring if you use global "
-            "hotkeys) in System Settings, then click Restart.\n\n"
-            "Other apps' permissions were not touched."
-        )
-        ax_btn = msg.addButton("Open Accessibility settings", QMessageBox.ActionRole)
-        im_btn = msg.addButton("Open Input Monitoring settings", QMessageBox.ActionRole)
-        restart_btn = msg.addButton("Restart NexusTyper Pro", QMessageBox.AcceptRole)
-        msg.addButton("Later", QMessageBox.RejectRole)
-        msg.setDefaultButton(restart_btn)
-        msg.exec_()
-        clicked = msg.clickedButton()
-        if clicked is ax_btn:
-            self._open_macos_accessibility_settings()
-        elif clicked is im_btn:
-            try:
-                self._platform.request_input_monitoring()
-            except Exception:
-                _log_caught("_notify_after_auto_reset: req IM")
-            self._open_macos_input_monitoring_settings()
-        elif clicked is restart_btn:
-            self._restart_app()
+            _log_caught("_maybe_auto_reset_after_upgrade: status set")
+        try:
+            QTimer.singleShot(400, self._open_macos_accessibility_settings)
+        except Exception:
+            _log_caught("_maybe_auto_reset_after_upgrade: schedule open settings")
 
     def _update_permission_status(self, ok: bool, ax=None, im=None) -> None:
         if self._platform.name != "macos":
@@ -709,34 +686,20 @@ class AutoTyperApp(QWidget):
             prev = getattr(self, "_last_trust_state", None)
             trusted = self.check_macos_permissions(prompt=False, show_dialog=False)
             if prev is False and trusted is True:
-                # Don't pile up restart prompts if the user refocuses
-                # several times before deciding.
-                if getattr(self, "_restart_prompt_open", False):
-                    return
-                self._restart_prompt_open = True
+                # No second modal — just put a status-bar nudge so the
+                # user knows a restart will pick up the new state.
+                # macOS caches AXIsProcessTrusted per process, so the
+                # currently-running process may keep seeing False even
+                # after the toggle is on; a fresh launch resolves it.
                 try:
-                    self._prompt_restart_after_permission_grant()
-                finally:
-                    self._restart_prompt_open = False
+                    self.status_label.setText(
+                        "Status: Permission granted ✓ — restart the app "
+                        "to apply (Cmd+Q, then relaunch)."
+                    )
+                except Exception:
+                    _log_caught("_on_app_state_changed: status nudge")
         except Exception:
             _log_caught("_on_app_state_changed")
-
-    def _prompt_restart_after_permission_grant(self) -> None:
-        msg = QMessageBox(self)
-        msg.setIcon(QMessageBox.Information)
-        msg.setWindowTitle("Accessibility granted")
-        msg.setText("Restart NexusTyper Pro to apply the new permission.")
-        msg.setInformativeText(
-            "macOS caches the permission state per process, so a quick "
-            "restart guarantees typing works correctly. Your settings "
-            "are preserved across the restart."
-        )
-        restart_btn = msg.addButton("Restart now", QMessageBox.AcceptRole)
-        msg.addButton("Later", QMessageBox.RejectRole)
-        msg.setDefaultButton(restart_btn)
-        msg.exec_()
-        if msg.clickedButton() is restart_btn:
-            self._restart_app()
 
     def _restart_app(self) -> None:
         """Quit and relaunch the app.

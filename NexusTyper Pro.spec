@@ -125,8 +125,13 @@ app = BUNDLE(
         'CFBundleVersion': APP_VERSION,
         'CFBundleExecutable': 'NexusTyper Pro',
         'CFBundleName': 'NexusTyper Pro',
-        'NSAppleEventsUsageDescription': 'This app needs to control your computer to automate typing.',
-        'NSAccessibilityUsageDescription': 'This app needs to access Accessibility features to simulate keyboard input.',
+        'NSAppleEventsUsageDescription': 'NexusTyper Pro needs to send Apple events to drive other apps for automated typing.',
+        'NSAccessibilityUsageDescription': 'NexusTyper Pro needs Accessibility access to simulate keyboard input into other apps.',
+        # Required by macOS Sequoia (15.x) before IOHIDRequestAccess will
+        # register the app in System Settings → Privacy & Security →
+        # Input Monitoring. Without this key, the app never appears in
+        # the list and the user has no toggle to grant.
+        'NSInputMonitoringUsageDescription': 'NexusTyper Pro needs to listen for keyboard events to support global hotkeys (Start / Stop / Resume).',
         'LSUIElement': False,
         'NSHighResolutionCapable': True,
     },
