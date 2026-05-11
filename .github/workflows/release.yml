@@ -413,8 +413,23 @@ jobs:
           git commit -m "Bump source APP_VERSION to $VERSION"
           git push -u origin "$BRANCH"
 
+          # `gh pr create` requires the repo's
+          # Settings → Actions → General → "Allow GitHub Actions to
+          # create and approve pull requests" checkbox to be ON. If
+          # it's off the call fails with `GraphQL: GitHub Actions is
+          # not permitted to create or approve pull requests`. Don't
+          # red-X the entire release for that — the bump branch is
+          # already on origin, the maintainer can open the PR with
+          # one click from the URL we print below.
+          set +e
           gh pr create \
             --base main \
             --head "$BRANCH" \
             --title "Bump source APP_VERSION to $VERSION" \
             --body $'Auto-opened after the v'"$VERSION"$' release shipped.\n\nKeeps `nexustyper/constants.py` in sync with the latest tag so dev runs from source show the correct version. Safe to squash-merge.'
+          PR_RC=$?
+          set -e
+          if [ "$PR_RC" -ne 0 ]; then
+            URL="https://github.com/${GITHUB_REPOSITORY}/pull/new/$BRANCH"
+            echo "::warning::Auto PR creation failed (likely missing 'Allow GitHub Actions to create pull requests' in repo Settings → Actions → General). Bump branch is on origin: open the PR manually at $URL"
+          fi
