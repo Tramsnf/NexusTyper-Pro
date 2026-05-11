@@ -355,3 +355,66 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+
+  bump-source-version:
+    # After a successful tag-driven release, open a PR against main that
+    # rewrites nexustyper/constants.py with the just-released version.
+    # The release workflow already rewrites the constant *for the build*,
+    # but the source on disk in `main` is never touched — so without this
+    # job, anyone running from source between releases sees a stale
+    # APP_VERSION until a human remembers to bump it. The PR sits there
+    # until the maintainer merges it, so a broken release tag (which we'd
+    # want to skip) doesn't auto-poison main.
+    name: Open auto-bump PR for source APP_VERSION
+    needs: [macos, windows, linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Compute version from tag
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          VERSION="${REF#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Bump source and open PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # In-place bump matching the build-time sed in the platform jobs.
+          sed -i -E \
+            "s/^APP_VERSION[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]/APP_VERSION = \"$VERSION\"/" \
+            nexustyper/constants.py
+
+          if git diff --quiet nexustyper/constants.py; then
+            echo "Source already at $VERSION; nothing to bump."
+            exit 0
+          fi
+
+          # Standard GitHub Actions bot identity for automated commits.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="chore/bump-source-$VERSION"
+          # If a previous failed run left this branch around, blow it away
+          # and recreate so the PR points at clean state.
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git checkout -b "$BRANCH"
+          git add nexustyper/constants.py
+          git commit -m "Bump source APP_VERSION to $VERSION"
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Bump source APP_VERSION to $VERSION" \
+            --body $'Auto-opened after the v'"$VERSION"$' release shipped.\n\nKeeps `nexustyper/constants.py` in sync with the latest tag so dev runs from source show the correct version. Safe to squash-merge.'
