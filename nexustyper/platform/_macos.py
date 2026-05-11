@@ -186,18 +186,35 @@ class MacOSPlatform(Platform):
         :meth:`active_app_identity` returns just the app name on macOS
         ("Google Chrome") — same regardless of tab — so it can't drive
         per-tab focus locking. This method reads the actual focused-window
-        title via the AX framework, using the same Accessibility permission
-        the app already has for synthetic input (no new prompt). Falls back
-        to pyautogui's AppleScript path if the AX read fails.
+        title via the AX framework. Falls back to (1) pyautogui's window
+        title if that version of pyautogui exposes one on macOS, then
+        (2) the app's localized name — better to hand back a stable
+        identifier than blow up.
         """
         title = self._ax_focused_window_title()
         if title:
             return title
+        # pyautogui dropped getActiveWindowTitle on macOS in recent
+        # versions; only call it if the attribute actually exists, so
+        # the focus-lock poll loop doesn't fire AttributeError on every
+        # iteration.
         try:
             import pyautogui  # type: ignore
-            return pyautogui.getActiveWindowTitle() or ""
+            getter = getattr(pyautogui, "getActiveWindowTitle", None)
+            if getter is not None:
+                t = getter()
+                if t:
+                    return str(t)
         except Exception:
-            _log_caught('active_window_title')
+            _log_caught("active_window_title: pyautogui fallback")
+        # Last resort: the frontmost app's name. Stable, always
+        # available, won't change as titles mutate — better than ""
+        # which would leave the focus-lock comparison perpetually
+        # mismatched.
+        try:
+            return self.active_app_identity()
+        except Exception:
+            _log_caught("active_window_title: app-name fallback")
             return ""
 
     def _ax_focused_window_title(self) -> str:
