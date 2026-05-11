@@ -251,6 +251,74 @@ class AutoTyperApp(QWidget):
     def _open_macos_input_monitoring_settings(self):
         self._open_macos_settings_url(MACOS_INPUT_MONITORING_SETTINGS_URL)
 
+    def _running_bundle_identifier(self):
+        """Return the running .app's CFBundleIdentifier, or None.
+
+        Empty / None when run from a dev venv (no bundle wraps the
+        Python process), in which case the tccutil reset path doesn't
+        apply — we'd be resetting permission entries for whatever
+        terminal launched us, not for ourselves.
+        """
+        try:
+            from AppKit import NSBundle  # type: ignore
+            bid = NSBundle.mainBundle().bundleIdentifier()
+            if not bid:
+                return None
+            s = str(bid)
+            # Trust only well-formed reverse-DNS strings — Python's own
+            # bundle ID is "org.python.python" or similar, which we
+            # don't want to reset accidentally.
+            if not s.startswith("com.tramsnf."):
+                return None
+            return s
+        except Exception:
+            _log_caught("_running_bundle_identifier")
+            return None
+
+    def _reset_macos_tcc_for_self(self) -> bool:
+        """Run `tccutil reset` for our bundle's Accessibility + Input
+        Monitoring permissions. The OS deletes the existing trust entries,
+        then asks the user fresh on the next call into either subsystem.
+
+        This is the workaround for the "toggle is on in System Settings
+        but the app still reads False" case, which happens when the
+        bundle's signature has changed across releases (every ad-hoc
+        signed build has a different signature, so TCC's stored trust
+        record stops matching). Permanent fix is Developer-ID code
+        signing every release with the same identity — see the workflow
+        secrets in `.github/workflows/release.yml`.
+
+        Returns True if we attempted the reset, False if we couldn't
+        (no bundle ID — dev mode, where this path doesn't apply).
+        """
+        bid = self._running_bundle_identifier()
+        if not bid:
+            try:
+                self.status_label.setText(
+                    "Status: Reset only available in the installed .app "
+                    "— in dev mode, restart your terminal/VS Code instead."
+                )
+            except Exception:
+                _log_caught("_reset_macos_tcc_for_self: status set")
+            return False
+        ok_any = False
+        for service in ("Accessibility", "ListenEvent"):
+            try:
+                subprocess.run(
+                    ["tccutil", "reset", service, bid],
+                    check=False,
+                    capture_output=True,
+                    timeout=10,
+                )
+                ok_any = True
+            except Exception:
+                _log_caught(f"_reset_macos_tcc_for_self: {service}")
+        try:
+            logger.info(f"tccutil reset Accessibility/ListenEvent for {bid}")
+        except Exception:
+            _log_caught("_reset_macos_tcc_for_self: log")
+        return ok_any
+
     def _macos_permission_summary(self):
         """Return (ax_trusted, im_trusted, missing_list) for the dialog/banner.
 
@@ -309,11 +377,26 @@ class AutoTyperApp(QWidget):
             )
         msg.setInformativeText("\n\n".join(info_lines))
 
-        ax_btn = im_btn = None
+        ax_btn = im_btn = reset_btn = None
         if not ax:
             ax_btn = msg.addButton("Open Accessibility settings", QMessageBox.ActionRole)
         if im is False:
             im_btn = msg.addButton("Open Input Monitoring settings", QMessageBox.ActionRole)
+        # Reset trust state — bundle-scoped tccutil reset for the
+        # AX + ListenEvent services. ONLY clears entries for THIS app
+        # (com.tramsnf.nexustyperpro), never any other app you've granted.
+        # Helps when System Settings shows the toggle ON but the app
+        # still reads the permission as denied — typically caused by a
+        # signature mismatch across releases for ad-hoc-signed builds.
+        if self._running_bundle_identifier():
+            reset_btn = msg.addButton(
+                "Reset NexusTyper trust", QMessageBox.ActionRole,
+            )
+            reset_btn.setToolTip(
+                "Removes only NexusTyper Pro's entries from the macOS "
+                "Privacy lists, then reopens System Settings so you can "
+                "re-grant. Other apps' permissions are not touched."
+            )
         restart_btn = msg.addButton("Restart NexusTyper Pro", QMessageBox.AcceptRole)
         msg.addButton("Later", QMessageBox.RejectRole)
         msg.setDefaultButton(restart_btn)
@@ -332,6 +415,28 @@ class AutoTyperApp(QWidget):
             except Exception:
                 _log_caught("_show_macos_permissions_dialog: req IM")
             self._open_macos_input_monitoring_settings()
+        elif reset_btn is not None and clicked is reset_btn:
+            # Bundle-scoped reset: only NexusTyper's entries are removed.
+            # Then guide the user back through grant + restart.
+            self._reset_macos_tcc_for_self()
+            follow = QMessageBox(self)
+            follow.setIcon(QMessageBox.Information)
+            follow.setWindowTitle("Trust state reset")
+            follow.setText(
+                "Cleared NexusTyper Pro's macOS permission entries.\n"
+                "Re-grant in the panel that just opened, then click Restart."
+            )
+            follow.setInformativeText(
+                "Only NexusTyper Pro was reset — every other app you've "
+                "granted Accessibility / Input Monitoring to is untouched."
+            )
+            settings_btn = follow.addButton(
+                "Open Privacy & Security", QMessageBox.AcceptRole,
+            )
+            follow.addButton("Later", QMessageBox.RejectRole)
+            follow.exec_()
+            if follow.clickedButton() is settings_btn:
+                self._open_macos_accessibility_settings()
         elif clicked is restart_btn:
             self._restart_app()
 
