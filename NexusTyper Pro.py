@@ -172,11 +172,18 @@ class AutoTyperApp(QWidget):
         except Exception:
             _log_caught("__init__: hook applicationStateChanged")
 
-        # Background update check — fires at most once per hour and stays
-        # silent unless an update is available. Delayed a few seconds so
-        # we never block the first paint on a slow network.
+        # Launch check — bypasses the 1-hour throttle so a user opening
+        # the app right now always gets a fresh answer to "is there an
+        # update?". Without force=True, a user who relaunched 30 min after
+        # closing wouldn't see a new release that dropped in between,
+        # which is exactly the case people most expect to be told about.
+        # Delayed a few seconds so we never block the first paint on a
+        # slow network.
         try:
-            QTimer.singleShot(2500, lambda: self._start_update_check(verbose=False))
+            QTimer.singleShot(
+                2500,
+                lambda: self._start_update_check(verbose=False, force=True),
+            )
         except Exception:
             _log_caught('__init__@L155')
             pass
@@ -2704,12 +2711,16 @@ class AutoTyperApp(QWidget):
             self.hotkey_listener.stop()
 
     # --- In-app update checker ---
-    def _start_update_check(self, verbose: bool = False):
+    def _start_update_check(self, verbose: bool = False, force: bool = False):
         """Spin up a worker thread that pings the GitHub Releases feed.
 
-        Background (verbose=False) checks fire at most once a day and stay
-        silent unless an update is available. The Help → Check for Updates
-        action passes verbose=True so it always reports status.
+        Background (verbose=False) checks fire at most once an hour and
+        stay silent unless an update is available. The Help → Check for
+        Updates action passes verbose=True so it always reports status.
+
+        ``force=True`` bypasses the 1-hour throttle. Used by the launch
+        check, where the user just opened the app and "is there an
+        update?" is the single most expected answer they came for.
         """
         # Remember whether this check was user-initiated so _on_update_available
         # can decide whether to also pop the modal (verbose) or just the
@@ -2720,10 +2731,11 @@ class AutoTyperApp(QWidget):
                 QMessageBox.information(self, "Updates",
                                         "Update checks are not configured for this build.")
             return
-        # Throttle background checks. Manual checks bypass the throttle.
-        # 1 hour, not 24 — the banner should appear within a reasonable
-        # window of a new release going live, not the next day.
-        if not verbose:
+        # Throttle background checks. Manual + forced checks bypass it.
+        # 1 hour for periodic / focus-return checks — the banner should
+        # appear within a reasonable window of a new release going live,
+        # not the next day.
+        if not verbose and not force:
             try:
                 last = float(self.settings.value("updateCheckLastEpoch", 0.0))
             except Exception:
