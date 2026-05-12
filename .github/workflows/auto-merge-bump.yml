@@ -1,0 +1,44 @@
+name: Auto-merge source-version bump PRs
+
+# Squash-merges the PR that `release.yml`'s `bump-source-version` job
+# auto-opens after each tagged release. The change is one line in
+# `nexustyper/constants.py` (already verified at build time by the
+# release pipeline), so it doesn't need a human approval click — it
+# just needs to land so the next dev run from `main` shows the right
+# version in About / Diagnostics.
+#
+# Safety: the conditional below ensures we only auto-merge PRs that
+# (1) come from a `chore/bump-source-*` branch and (2) were opened by
+# the GitHub Actions bot. A random user opening a PR onto a
+# `chore/bump-source-*` branch will not trigger this.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: |
+      startsWith(github.event.pull_request.head.ref, 'chore/bump-source-') &&
+      github.event.pull_request.user.login == 'github-actions[bot]' &&
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Squash-merge the bump PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # The bump PR's diff is provably one line in constants.py — no
+          # need to wait for CI to gate the merge. Squash so the merge
+          # commit message stays clean, delete the branch so the chore/
+          # namespace doesn't accumulate.
+          gh pr merge "$PR_NUMBER" \
+            --repo "${{ github.repository }}" \
+            --squash \
+            --delete-branch
