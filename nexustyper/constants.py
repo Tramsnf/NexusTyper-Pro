@@ -7,7 +7,7 @@ versioning, branding, and update-feed URLs only have to change in one place.
 import platform
 
 APP_NAME = "NexusTyper Pro"
-APP_VERSION = "3.7.10"
+APP_VERSION = "3.7.15"
 APP_AUTHOR = "TramsNF"
 APP_COPYRIGHT_YEAR = "2025"
 APP_SIGNATURE = "Automate. Create. Elevate."
